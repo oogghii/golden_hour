@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#f2a065" />
+    <meta name="description" content="A quiet walk through a field at golden hour." />
+    <title>Golden Hour</title>
+    <style>
+      /*
+        Inline so the very first paint is already the warm horizon. Anything
+        external would flash white first, which would undo the whole opening.
+      */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
+        background: radial-gradient(
+          125% 95% at 50% 80%,
+          #ffe0ad 0%,
+          #ffbe78 32%,
+          #f4915f 62%,
+          #cf6a78 100%
+        );
+      }
+
+      body {
+        position: fixed;
+        inset: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -webkit-tap-highlight-color: transparent;
+        -webkit-touch-callout: none;
+        user-select: none;
+        touch-action: none;
+        overscroll-behavior: none;
+      }
+
+      #view {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      #boot {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right)
+          env(safe-area-inset-bottom) env(safe-area-inset-left);
+        background: radial-gradient(
+          125% 95% at 50% 80%,
+          #fff1d6 0%,
+          #ffcf95 34%,
+          #f5a072 64%,
+          #d4788a 100%
+        );
+        transition: opacity 1900ms ease-out;
+        opacity: 1;
+        cursor: pointer;
+      }
+
+      #boot.is-gone {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      #boot-line {
+        font-size: clamp(0.72rem, 1.6vw, 0.9rem);
+        font-weight: 400;
+        letter-spacing: 0.34em;
+        text-transform: lowercase;
+        color: #6d3a35;
+        opacity: 0.62;
+        animation: breathe 5.5s ease-in-out infinite;
+      }
+
+      @keyframes breathe {
+        0%,
+        100% {
+          opacity: 0.42;
+        }
+        50% {
+          opacity: 0.78;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #boot-line {
+          animation: none;
+        }
+        #boot {
+          transition-duration: 600ms;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="boot"><p id="boot-line">click to begin</p></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

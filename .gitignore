@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# Machine-local Claude Code overrides; .claude/launch.json is intentionally tracked.
+.claude/settings.local.json

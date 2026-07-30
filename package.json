@@ -1,0 +1,22 @@
+{
+  "name": "golden-hour",
+  "version": "0.1.0",
+  "description": "A calm first-person golden-hour photography experience",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.5"
+  },
+  "private": true
+}
