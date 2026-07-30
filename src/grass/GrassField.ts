@@ -133,6 +133,8 @@ export class GrassField implements System {
       : createClusterMaterial(this.wind, this.texture, alphaTest);
     material.uniforms.uFadeStart!.value = config.fadeStart;
     material.uniforms.uFadeEnd!.value = config.fadeEnd;
+    material.uniforms.uNearFadeStart!.value = config.nearFadeStart ?? 0;
+    material.uniforms.uNearFadeEnd!.value = config.nearFadeEnd ?? 0.01;
 
     const capacity = Math.ceil(config.tileSize * config.tileSize * config.density);
     const diagonal = config.tileSize * Math.SQRT1_2;

@@ -67,8 +67,19 @@ export const PLAYER = {
   /** Low enough to feel weighty, high enough not to feel laggy. */
   lookLambda: 16,
   pitchLimitDeg: 78,
-  /** Deliberately tiny. Any more and it reads as a shooter. */
-  bob: { frequency: 1.9, amplitude: 0.015, roll: 0.007 },
+  /**
+   * A slow, body-led gait rather than an FPS-style camera bounce. The phase is
+   * distance-driven, so it naturally slows with the player instead of playing
+   * at a fixed tempo while they coast to a stop.
+   */
+  bob: {
+    cyclesPerMetre: 0.62,
+    amplitude: 0.0135,
+    sway: 0.018,
+    roll: 0.0075,
+    startLambda: 2.2,
+    settleLambda: 3.3,
+  },
   breathe: { rate: 1.6, amplitude: 0.008 },
   /** Stop this far short of the waterline rather than wading in. */
   shoreMargin: 0.6,
@@ -209,6 +220,9 @@ export interface GrassBand {
   readonly density: number;
   readonly fadeStart: number;
   readonly fadeEnd: number;
+  /** Optional near-side height fade for coarser LODs. */
+  readonly nearFadeStart?: number;
+  readonly nearFadeEnd?: number;
   /** Ground footprint of a cluster. Clusters only. */
   readonly clusterWidth?: number;
   readonly height: readonly [number, number];
@@ -225,16 +239,31 @@ export interface GrassBand {
  */
 export const GRASS = {
   palette: {
-    root: 0x334d24,
-    mid: 0x6b8342,
+    root: 0x3b5a28,
+    mid: 0x718d45,
     /**
      * Kept off pure green. With almost no blue in the palette, the translucency
      * term drives green high against a near-zero blue channel and the field goes
      * neon lime.
      */
-    tip: 0x9caa66,
-    /** Per-instance drift toward straw, so some clumps read drier than others. */
-    tipDry: 0xc4b478,
+    tip: 0xa1b966,
+    /** Reserved for the few blades catching the warmest direct light. */
+    tipSun: 0xbdad69,
+  },
+  /**
+   * Broad, smooth meadow variation shared by blade and cluster LODs. Keeping
+   * this in world space makes the field read as one living surface instead of
+   * independently coloured instances.
+   */
+  colourField: {
+    scale: 0.018,
+    valueVariation: 0.075,
+    sunHighlight: 0.2,
+  },
+  /** Gentle world-space height drift layered over each blade's existing random size. */
+  sizeField: {
+    scale: 0.1,
+    variation: 0.14,
   },
   /**
    * Backlit glow through the blades — the biggest single win at golden hour, but
@@ -271,6 +300,8 @@ export const GRASS = {
         density: 2.6,
         fadeStart: 60,
         fadeEnd: 68,
+        nearFadeStart: 9,
+        nearFadeEnd: 18,
         clusterWidth: 1.1,
         // Matched to the near band's height, or the mid-ground visibly sags.
         height: [0.6, 1.15],
@@ -283,6 +314,8 @@ export const GRASS = {
         density: 0.14,
         fadeStart: 135,
         fadeEnd: 150,
+        nearFadeStart: 46,
+        nearFadeEnd: 62,
         clusterWidth: 4,
         height: [1.2, 2.4],
         width: [3.2, 4.8],
@@ -306,6 +339,8 @@ export const GRASS = {
         density: 1.5,
         fadeStart: 52,
         fadeEnd: 58,
+        nearFadeStart: 8,
+        nearFadeEnd: 16,
         clusterWidth: 1.4,
         height: [0.5, 0.95],
         width: [1, 1.6],
@@ -317,6 +352,8 @@ export const GRASS = {
         density: 0.12,
         fadeStart: 105,
         fadeEnd: 118,
+        nearFadeStart: 38,
+        nearFadeEnd: 54,
         clusterWidth: 4.5,
         height: [1.2, 2.4],
         width: [3.6, 5.2],
@@ -340,6 +377,8 @@ export const GRASS = {
         density: 0.9,
         fadeStart: 26,
         fadeEnd: 30,
+        nearFadeStart: 5,
+        nearFadeEnd: 10,
         clusterWidth: 1.6,
         height: [0.5, 0.95],
         width: [1.2, 1.8],

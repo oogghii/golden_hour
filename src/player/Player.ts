@@ -20,7 +20,10 @@ export class Player implements System {
   private readonly velocity = new THREE.Vector2();
   private readonly moveDirection = new THREE.Vector2();
   private camera: THREE.PerspectiveCamera | null = null;
-  private bobPhase = 0;
+  private gaitPhase = 0;
+  private gaitWeight = 0;
+  private verticalMotion = 0;
+  private sideMotion = 0;
   /** Respecting prefers-reduced-motion, per the brief's accessibility default. */
   private readonly motionScale = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     ? 0.2
@@ -35,7 +38,7 @@ export class Player implements System {
   init(ctx: EngineContext): void {
     this.camera = ctx.camera;
     this.position.y = this.height.heightAt(this.position.x, this.position.z);
-    this.applyToCamera(0);
+    this.applyToCamera(0, 0);
   }
 
   update(dt: number, elapsed: number): void {
@@ -43,7 +46,7 @@ export class Player implements System {
 
     this.integrateVelocity(dt);
     this.step(dt);
-    this.applyToCamera(elapsed);
+    this.applyToCamera(elapsed, dt);
   }
 
   private integrateVelocity(dt: number): void {
@@ -112,28 +115,54 @@ export class Player implements System {
     this.position.y = this.height.heightAt(nextX, nextZ);
   }
 
-  private applyToCamera(elapsed: number): void {
+  private applyToCamera(elapsed: number, dt: number): void {
     if (!this.camera) return;
 
     const speedRatio = saturate(this.speed / PLAYER.walkSpeed);
     const bob = PLAYER.bob;
 
-    this.bobPhase += this.speed * bob.frequency * 0.1;
-    // Vertical runs at twice the roll frequency, which is what a real gait does.
-    const bobY = Math.sin(this.bobPhase * 2) * bob.amplitude * speedRatio * this.motionScale;
+    // The gait advances with distance travelled, not wall-clock time. This
+    // makes its tempo follow the player's eased speed and prevents a metronomic
+    // animation from continuing while the body is settling.
+    this.gaitPhase += this.speed * bob.cyclesPerMetre * Math.PI * 2 * dt;
+    this.gaitWeight = damp(this.gaitWeight, speedRatio, bob.startLambda, dt);
+
+    // A small, deliberately uneven blend reads more like weight transfer than
+    // a looped head-bob. The incommensurate secondary terms make each step feel
+    // related without ever tracing the exact same path in the short term.
+    const phase = this.gaitPhase;
+    const verticalGait =
+      Math.sin(phase) * 0.68 +
+      Math.sin(phase * 2.13 + 0.8) * 0.18 +
+      Math.sin(phase * 0.47 + 1.6) * 0.14;
+    const sideGait =
+      Math.sin(phase + 0.35) * 0.78 + Math.sin(phase * 2.07 + 2.1) * 0.22;
+
+    const verticalTarget = verticalGait * bob.amplitude * this.gaitWeight * this.motionScale;
+    const sideTarget = sideGait * bob.sway * this.gaitWeight * this.motionScale;
+    // These filtered offsets preserve responsive controls while giving the
+    // body a moment to catch up and settle after a start, turn, or stop.
+    this.verticalMotion = damp(this.verticalMotion, verticalTarget, bob.settleLambda, dt);
+    this.sideMotion = damp(this.sideMotion, sideTarget, bob.settleLambda, dt);
+
     const breathe =
       Math.sin(elapsed * PLAYER.breathe.rate) *
       PLAYER.breathe.amplitude *
       (1 - speedRatio) *
       this.motionScale;
 
+    // Right for the current yaw. This offsets only the camera body, never the
+    // player position, so collision and grass-following remain unchanged.
+    const rightX = Math.cos(this.look.yaw);
+    const rightZ = -Math.sin(this.look.yaw);
+
     this.camera.position.set(
-      this.position.x,
-      this.position.y + PLAYER.eyeHeight + bobY + breathe,
-      this.position.z,
+      this.position.x + rightX * this.sideMotion,
+      this.position.y + PLAYER.eyeHeight + this.verticalMotion + breathe,
+      this.position.z + rightZ * this.sideMotion,
     );
 
     // Handed to the look system, which folds it in as screen roll next frame.
-    this.look.roll = Math.sin(this.bobPhase) * bob.roll * speedRatio * this.motionScale;
+    this.look.roll = this.sideMotion * (bob.roll / bob.sway);
   }
 }

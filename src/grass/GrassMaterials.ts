@@ -16,26 +16,33 @@ const SHARED_FRAGMENT_HEAD = /* glsl */ `
 uniform vec3 uRoot;
 uniform vec3 uMid;
 uniform vec3 uTip;
-uniform vec3 uTipDry;
+uniform vec3 uTipSun;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform vec3 uFillColor;
 uniform vec3 uThroughColor;
 uniform float uTranslucency;
+uniform float uColourFieldScale;
+uniform float uValueVariation;
+uniform float uSunHighlight;
 
 varying vec3 vWorldPos;
-varying float vRand;
+varying float vField;
 
 vec3 grassShade(float t, vec3 normal) {
-  // Some clumps run green, some run dry and straw-coloured.
-  vec3 tip = mix(uTip, uTipDry, vRand);
+  // The warmest tips are limited to broad regions facing the sun. This is a
+  // field-level accent, not a per-instance straw lottery.
+  float wrap = dot(normal, uSunDir) * 0.5 + 0.5;
+  float warmth = vField * smoothstep(0.56, 1.0, wrap) * uSunHighlight;
+  vec3 tip = mix(uTip, uTipSun, warmth);
   vec3 base = mix(uRoot, uMid, smoothstep(0.0, 0.55, t));
   base = mix(base, tip, smoothstep(0.5, 1.0, t));
-  base *= 0.85 + vRand * 0.3;
+  // Gentle value drift over tens of metres prevents a flat swatch without
+  // breaking the field into visibly random yellow and green instances.
+  base *= mix(1.0 - uValueVariation, 1.0 + uValueVariation, vField);
 
   // Wrap lighting: no blade ever goes black, which is what keeps the mass
   // reading as soft rather than as thousands of hard-lit slivers.
-  float wrap = dot(normal, uSunDir) * 0.5 + 0.5;
   vec3 lit = base * (uFillColor + uSunColor * wrap);
 
   // Looking into the sun through the field lights the blades from behind. A
@@ -61,11 +68,16 @@ attribute float aCurl;
 uniform vec2 uPlayerXZ;
 uniform float uFadeStart;
 uniform float uFadeEnd;
+uniform float uNearFadeStart;
+uniform float uNearFadeEnd;
+uniform float uColourFieldScale;
+uniform float uSizeFieldScale;
+uniform float uSizeFieldVariation;
 
 varying float vT;
 varying vec3 vWorldPos;
 varying vec3 vNormal;
-varying float vRand;
+varying float vField;
 
 #include <fog_pars_vertex>
 ${NOISE_GLSL}
@@ -75,7 +87,15 @@ void main() {
   float t = position.y;
   vT = t;
 
-  vec3 local = vec3(position.x * aScale.x, position.y * aScale.y, position.z * aCurl * aScale.y);
+  vec2 sizePoint = aOffset.xz * uSizeFieldScale;
+  float sizeField = gnoise(sizePoint + vec2(-8.6, 15.3)) * 0.68;
+  sizeField += gnoise(sizePoint * 0.43 + vec2(6.2, -3.7)) * 0.32;
+  float naturalHeight = aScale.y * mix(
+    1.0 - uSizeFieldVariation,
+    1.0 + uSizeFieldVariation,
+    smoothstep(0.2, 0.8, sizeField)
+  );
+  vec3 local = vec3(position.x * aScale.x, position.y * naturalHeight, position.z * aCurl * naturalHeight);
 
   float s = sin(aRotation);
   float c = cos(aRotation);
@@ -87,13 +107,16 @@ void main() {
   world.y = aOffset.y + (world.y - aOffset.y) * fade;
 
   // Cubic along height, so only the tips whip.
-  world.xz += windSway(aOffset.xz, aRandom.x * 6.2831) * t * t * t * aScale.y * fade;
+  world.xz += windSway(aOffset.xz, aRandom.x * 6.2831) * t * t * t * naturalHeight * fade;
 
   // Blended toward straight up so the field lights as a mass. A physically
   // correct blade normal flickers badly once there are tens of thousands.
   vNormal = normalize(mix(vec3(s, 0.0, c), vec3(0.0, 1.0, 0.0), 0.55));
   vWorldPos = world;
-  vRand = aRandom.y;
+  vec2 fieldPoint = aOffset.xz * uColourFieldScale;
+  float broad = gnoise(fieldPoint + vec2(13.4, -7.2)) * 0.72;
+  broad += gnoise(fieldPoint * 0.47 + vec2(-4.1, 9.8)) * 0.28;
+  vField = smoothstep(0.24, 0.76, broad);
 
   vec4 mvPosition = viewMatrix * vec4(world, 1.0);
   gl_Position = projectionMatrix * mvPosition;
@@ -124,10 +147,15 @@ attribute vec2 aRandom;
 uniform vec2 uPlayerXZ;
 uniform float uFadeStart;
 uniform float uFadeEnd;
+uniform float uNearFadeStart;
+uniform float uNearFadeEnd;
+uniform float uColourFieldScale;
+uniform float uSizeFieldScale;
+uniform float uSizeFieldVariation;
 
 varying vec2 vUv;
 varying vec3 vWorldPos;
-varying float vRand;
+varying float vField;
 
 #include <fog_pars_vertex>
 ${NOISE_GLSL}
@@ -136,20 +164,34 @@ ${WIND_GLSL}
 void main() {
   vUv = uv;
 
-  vec3 local = vec3(position.x * aScale.x, position.y * aScale.y, position.z * aScale.x);
+  vec2 sizePoint = aOffset.xz * uSizeFieldScale;
+  float sizeField = gnoise(sizePoint + vec2(-8.6, 15.3)) * 0.68;
+  sizeField += gnoise(sizePoint * 0.43 + vec2(6.2, -3.7)) * 0.32;
+  float naturalHeight = aScale.y * mix(
+    1.0 - uSizeFieldVariation,
+    1.0 + uSizeFieldVariation,
+    smoothstep(0.2, 0.8, sizeField)
+  );
+  vec3 local = vec3(position.x * aScale.x, position.y * naturalHeight, position.z * aScale.x);
 
   float s = sin(aRotation);
   float c = cos(aRotation);
   vec3 world = vec3(local.x * c - local.z * s, local.y, local.x * s + local.z * c) + aOffset;
 
-  float fade = 1.0 - smoothstep(uFadeStart, uFadeEnd, length(aOffset.xz - uPlayerXZ));
+  float distanceToPlayer = length(aOffset.xz - uPlayerXZ);
+  float fade =
+    (1.0 - smoothstep(uFadeStart, uFadeEnd, distanceToPlayer)) *
+    smoothstep(uNearFadeStart, uNearFadeEnd, distanceToPlayer);
   world.y = aOffset.y + (world.y - aOffset.y) * fade;
 
   // The whole cluster leans as one, which is correct: it stands in for a clump.
-  world.xz += windSway(aOffset.xz, aRandom.x * 6.2831) * uv.y * uv.y * aScale.y * fade;
+  world.xz += windSway(aOffset.xz, aRandom.x * 6.2831) * uv.y * uv.y * naturalHeight * fade;
 
   vWorldPos = world;
-  vRand = aRandom.y;
+  vec2 fieldPoint = aOffset.xz * uColourFieldScale;
+  float broad = gnoise(fieldPoint + vec2(13.4, -7.2)) * 0.72;
+  broad += gnoise(fieldPoint * 0.47 + vec2(-4.1, 9.8)) * 0.28;
+  vField = smoothstep(0.24, 0.76, broad);
 
   vec4 mvPosition = viewMatrix * vec4(world, 1.0);
   gl_Position = projectionMatrix * mvPosition;
@@ -184,15 +226,22 @@ function paletteUniforms(): Record<string, THREE.IUniform> {
     uRoot: { value: new THREE.Color(GRASS.palette.root) },
     uMid: { value: new THREE.Color(GRASS.palette.mid) },
     uTip: { value: new THREE.Color(GRASS.palette.tip) },
-    uTipDry: { value: new THREE.Color(GRASS.palette.tipDry) },
+    uTipSun: { value: new THREE.Color(GRASS.palette.tipSun) },
     uSunDir: { value: sunDirection() },
     uSunColor: { value: new THREE.Color(GRASS.lightColor) },
     uFillColor: { value: new THREE.Color(SUN.fillSky).multiplyScalar(0.38) },
     uThroughColor: { value: new THREE.Color(GRASS.translucencyColor) },
     uTranslucency: { value: GRASS.translucency },
+    uColourFieldScale: { value: GRASS.colourField.scale },
+    uValueVariation: { value: GRASS.colourField.valueVariation },
+    uSunHighlight: { value: GRASS.colourField.sunHighlight },
     uPlayerXZ: { value: new THREE.Vector2() },
     uFadeStart: { value: 0 },
     uFadeEnd: { value: 1 },
+    uNearFadeStart: { value: 0 },
+    uNearFadeEnd: { value: 0.01 },
+    uSizeFieldScale: { value: GRASS.sizeField.scale },
+    uSizeFieldVariation: { value: GRASS.sizeField.variation },
   };
 }
 
