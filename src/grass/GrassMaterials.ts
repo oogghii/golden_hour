@@ -22,24 +22,35 @@ uniform vec3 uSunColor;
 uniform vec3 uFillColor;
 uniform vec3 uThroughColor;
 uniform float uTranslucency;
-uniform float uColourFieldScale;
 uniform float uValueVariation;
 uniform float uSunHighlight;
 
 varying vec3 vWorldPos;
-varying float vField;
+varying float vValueNoise;
+varying float vRichness;
+varying float vOvergrowth;
 
 vec3 grassShade(float t, vec3 normal) {
-  // The warmest tips are limited to broad regions facing the sun. This is a
-  // field-level accent, not a per-instance straw lottery.
+  // The warmest tips are limited to broad regions facing the sun.
   float wrap = dot(normal, uSunDir) * 0.5 + 0.5;
-  float warmth = vField * smoothstep(0.56, 1.0, wrap) * uSunHighlight;
-  vec3 tip = mix(uTip, uTipSun, warmth);
-  vec3 base = mix(uRoot, uMid, smoothstep(0.0, 0.55, t));
+  float warmth = smoothstep(0.56, 1.0, wrap) * uSunHighlight;
+  
+  vec3 tip = uTip;
+  // Ecology: Richness makes it greener, overgrowth makes it drier/golden
+  tip = mix(tip, uMid, vRichness * 0.35);
+  tip = mix(tip, uTipSun, vOvergrowth * 0.45);
+  tip = mix(tip, uTipSun, warmth);
+  
+  vec3 mid = uMid;
+  // Ecology: Richness deepens the mid-layer
+  mid = mix(mid, mix(uRoot, uMid, 0.5), vRichness * 0.4);
+
+  vec3 base = mix(uRoot, mid, smoothstep(0.0, 0.55, t));
   base = mix(base, tip, smoothstep(0.5, 1.0, t));
+  
   // Gentle value drift over tens of metres prevents a flat swatch without
   // breaking the field into visibly random yellow and green instances.
-  base *= mix(1.0 - uValueVariation, 1.0 + uValueVariation, vField);
+  base *= mix(1.0 - uValueVariation, 1.0 + uValueVariation, vValueNoise);
 
   // Wrap lighting: no blade ever goes black, which is what keeps the mass
   // reading as soft rather than as thousands of hard-lit slivers.
@@ -70,14 +81,17 @@ uniform float uFadeStart;
 uniform float uFadeEnd;
 uniform float uNearFadeStart;
 uniform float uNearFadeEnd;
-uniform float uColourFieldScale;
-uniform float uSizeFieldScale;
-uniform float uSizeFieldVariation;
+uniform float uRichnessScale;
+uniform float uRichnessHeight;
+uniform float uOvergrowthScale;
+uniform float uOvergrowthHeight;
 
 varying float vT;
 varying vec3 vWorldPos;
 varying vec3 vNormal;
-varying float vField;
+varying float vValueNoise;
+varying float vRichness;
+varying float vOvergrowth;
 
 #include <fog_pars_vertex>
 ${NOISE_GLSL}
@@ -87,14 +101,20 @@ void main() {
   float t = position.y;
   vT = t;
 
-  vec2 sizePoint = aOffset.xz * uSizeFieldScale;
-  float sizeField = gnoise(sizePoint + vec2(-8.6, 15.3)) * 0.68;
-  sizeField += gnoise(sizePoint * 0.43 + vec2(6.2, -3.7)) * 0.32;
-  float naturalHeight = aScale.y * mix(
-    1.0 - uSizeFieldVariation,
-    1.0 + uSizeFieldVariation,
-    smoothstep(0.2, 0.8, sizeField)
-  );
+  vec2 richPoint = aOffset.xz * uRichnessScale;
+  float richness = gnoise(richPoint + vec2(13.4, -7.2)) * 0.5 + 0.5;
+  vRichness = smoothstep(0.3, 0.7, richness);
+
+  vec2 overPoint = aOffset.xz * uOvergrowthScale;
+  float overgrowth = gnoise(overPoint + vec2(-8.6, 15.3)) * 0.5 + 0.5;
+  vOvergrowth = smoothstep(0.3, 0.7, overgrowth);
+
+  vValueNoise = gnoise(aOffset.xz * 0.05 + vec2(4.1, 9.8)) * 0.5 + 0.5;
+
+  // Restore the original base scale (~0.85) so the field isn't globally too tall
+  float naturalHeight = aScale.y * 0.85;
+  naturalHeight *= 1.0 + (vRichness * 2.0 - 1.0) * uRichnessHeight;
+  naturalHeight *= 1.0 + (vOvergrowth * 2.0 - 1.0) * uOvergrowthHeight;
   vec3 local = vec3(position.x * aScale.x, position.y * naturalHeight, position.z * aCurl * naturalHeight);
 
   float s = sin(aRotation);
@@ -109,14 +129,16 @@ void main() {
   // Cubic along height, so only the tips whip.
   world.xz += windSway(aOffset.xz, aRandom.x * 6.2831) * t * t * t * naturalHeight * fade;
 
+  // Extremely subtle player parting
+  float pushDist = length(aOffset.xz - uPlayerXZ);
+  float pushAmount = smoothstep(0.6, 0.0, pushDist);
+  vec2 pushDir = normalize(aOffset.xz - uPlayerXZ + vec2(0.001));
+  world.xz += pushDir * pushAmount * 0.1 * t * fade;
+
   // Blended toward straight up so the field lights as a mass. A physically
   // correct blade normal flickers badly once there are tens of thousands.
   vNormal = normalize(mix(vec3(s, 0.0, c), vec3(0.0, 1.0, 0.0), 0.55));
   vWorldPos = world;
-  vec2 fieldPoint = aOffset.xz * uColourFieldScale;
-  float broad = gnoise(fieldPoint + vec2(13.4, -7.2)) * 0.72;
-  broad += gnoise(fieldPoint * 0.47 + vec2(-4.1, 9.8)) * 0.28;
-  vField = smoothstep(0.24, 0.76, broad);
 
   vec4 mvPosition = viewMatrix * vec4(world, 1.0);
   gl_Position = projectionMatrix * mvPosition;
@@ -149,13 +171,16 @@ uniform float uFadeStart;
 uniform float uFadeEnd;
 uniform float uNearFadeStart;
 uniform float uNearFadeEnd;
-uniform float uColourFieldScale;
-uniform float uSizeFieldScale;
-uniform float uSizeFieldVariation;
+uniform float uRichnessScale;
+uniform float uRichnessHeight;
+uniform float uOvergrowthScale;
+uniform float uOvergrowthHeight;
 
 varying vec2 vUv;
 varying vec3 vWorldPos;
-varying float vField;
+varying float vValueNoise;
+varying float vRichness;
+varying float vOvergrowth;
 
 #include <fog_pars_vertex>
 ${NOISE_GLSL}
@@ -164,14 +189,20 @@ ${WIND_GLSL}
 void main() {
   vUv = uv;
 
-  vec2 sizePoint = aOffset.xz * uSizeFieldScale;
-  float sizeField = gnoise(sizePoint + vec2(-8.6, 15.3)) * 0.68;
-  sizeField += gnoise(sizePoint * 0.43 + vec2(6.2, -3.7)) * 0.32;
-  float naturalHeight = aScale.y * mix(
-    1.0 - uSizeFieldVariation,
-    1.0 + uSizeFieldVariation,
-    smoothstep(0.2, 0.8, sizeField)
-  );
+  vec2 richPoint = aOffset.xz * uRichnessScale;
+  float richness = gnoise(richPoint + vec2(13.4, -7.2)) * 0.5 + 0.5;
+  vRichness = smoothstep(0.3, 0.7, richness);
+
+  vec2 overPoint = aOffset.xz * uOvergrowthScale;
+  float overgrowth = gnoise(overPoint + vec2(-8.6, 15.3)) * 0.5 + 0.5;
+  vOvergrowth = smoothstep(0.3, 0.7, overgrowth);
+
+  vValueNoise = gnoise(aOffset.xz * 0.05 + vec2(4.1, 9.8)) * 0.5 + 0.5;
+
+  // Restore the original base scale (~0.85) so the field isn't globally too tall
+  float naturalHeight = aScale.y * 0.85;
+  naturalHeight *= 1.0 + (vRichness * 2.0 - 1.0) * uRichnessHeight;
+  naturalHeight *= 1.0 + (vOvergrowth * 2.0 - 1.0) * uOvergrowthHeight;
   vec3 local = vec3(position.x * aScale.x, position.y * naturalHeight, position.z * aScale.x);
 
   float s = sin(aRotation);
@@ -187,11 +218,13 @@ void main() {
   // The whole cluster leans as one, which is correct: it stands in for a clump.
   world.xz += windSway(aOffset.xz, aRandom.x * 6.2831) * uv.y * uv.y * naturalHeight * fade;
 
+  // Extremely subtle player parting
+  float pushDist = length(aOffset.xz - uPlayerXZ);
+  float pushAmount = smoothstep(0.6, 0.0, pushDist);
+  vec2 pushDir = normalize(aOffset.xz - uPlayerXZ + vec2(0.001));
+  world.xz += pushDir * pushAmount * 0.1 * uv.y * fade;
+
   vWorldPos = world;
-  vec2 fieldPoint = aOffset.xz * uColourFieldScale;
-  float broad = gnoise(fieldPoint + vec2(13.4, -7.2)) * 0.72;
-  broad += gnoise(fieldPoint * 0.47 + vec2(-4.1, 9.8)) * 0.28;
-  vField = smoothstep(0.24, 0.76, broad);
 
   vec4 mvPosition = viewMatrix * vec4(world, 1.0);
   gl_Position = projectionMatrix * mvPosition;
@@ -232,16 +265,17 @@ function paletteUniforms(): Record<string, THREE.IUniform> {
     uFillColor: { value: new THREE.Color(SUN.fillSky).multiplyScalar(0.38) },
     uThroughColor: { value: new THREE.Color(GRASS.translucencyColor) },
     uTranslucency: { value: GRASS.translucency },
-    uColourFieldScale: { value: GRASS.colourField.scale },
-    uValueVariation: { value: GRASS.colourField.valueVariation },
-    uSunHighlight: { value: GRASS.colourField.sunHighlight },
+    uRichnessScale: { value: GRASS.ecology.richness.scale },
+    uRichnessHeight: { value: GRASS.ecology.richness.heightInfluence },
+    uOvergrowthScale: { value: GRASS.ecology.overgrowth.scale },
+    uOvergrowthHeight: { value: GRASS.ecology.overgrowth.heightInfluence },
+    uValueVariation: { value: GRASS.ecology.valueVariation },
+    uSunHighlight: { value: GRASS.ecology.sunHighlight },
     uPlayerXZ: { value: new THREE.Vector2() },
     uFadeStart: { value: 0 },
     uFadeEnd: { value: 1 },
     uNearFadeStart: { value: 0 },
     uNearFadeEnd: { value: 0.01 },
-    uSizeFieldScale: { value: GRASS.sizeField.scale },
-    uSizeFieldVariation: { value: GRASS.sizeField.variation },
   };
 }
 

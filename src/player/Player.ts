@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { EngineContext, System } from '../core/System';
-import { PLAYER, WORLD } from '../core/Settings';
-import { damp, saturate, smoothstep } from '../util/math';
+import { PLAYER, VIEW, WORLD } from '../core/Settings';
+import { clamp, damp, saturate, smoothstep } from '../util/math';
 import type { HeightField } from '../world/HeightField';
 import type { FirstPersonCamera } from './FirstPersonCamera';
 import type { InputState } from './input/InputState';
@@ -20,10 +20,14 @@ export class Player implements System {
   private readonly velocity = new THREE.Vector2();
   private readonly moveDirection = new THREE.Vector2();
   private camera: THREE.PerspectiveCamera | null = null;
+  private baseFov = 62;
+  private currentFovBonus = 0;
+  private continuousMoveTime = 0;
   private gaitPhase = 0;
   private gaitWeight = 0;
-  private verticalMotion = 0;
-  private sideMotion = 0;
+  private springPos = { vertical: 0, side: 0, pitch: 0, roll: 0, z: 0 };
+  private springVel = { vertical: 0, side: 0, pitch: 0, roll: 0, z: 0 };
+  private previousSpeed = 0;
   /** Respecting prefers-reduced-motion, per the brief's accessibility default. */
   private readonly motionScale = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     ? 0.2
@@ -37,6 +41,7 @@ export class Player implements System {
 
   init(ctx: EngineContext): void {
     this.camera = ctx.camera;
+    this.baseFov = ctx.quality.isTouch ? VIEW.fovMobile : VIEW.fovDesktop;
     this.position.y = this.height.heightAt(this.position.x, this.position.z);
     this.applyToCamera(0, 0);
   }
@@ -63,7 +68,16 @@ export class Player implements System {
     const intent = this.moveDirection.length();
     if (intent > 1) this.moveDirection.divideScalar(intent);
 
-    const targetSpeed = this.input.boost ? PLAYER.strollSpeed : PLAYER.walkSpeed;
+    if (intent > 0.01) {
+      this.continuousMoveTime += dt;
+    } else {
+      this.continuousMoveTime = 0;
+    }
+
+    // Automatically transition to stroll speed after walking for 2 seconds
+    const autoBoost = smoothstep(2.0, 4.0, this.continuousMoveTime);
+    const targetSpeed = PLAYER.walkSpeed + autoBoost * (PLAYER.strollSpeed - PLAYER.walkSpeed);
+
     const targetX = this.moveDirection.x * targetSpeed;
     const targetY = this.moveDirection.y * targetSpeed;
 
@@ -120,49 +134,84 @@ export class Player implements System {
 
     const speedRatio = saturate(this.speed / PLAYER.walkSpeed);
     const bob = PLAYER.bob;
+    const phys = PLAYER.physics;
 
-    // The gait advances with distance travelled, not wall-clock time. This
-    // makes its tempo follow the player's eased speed and prevents a metronomic
-    // animation from continuing while the body is settling.
+    let targetFovBonus = 0;
+    if (this.speed > 0.1) {
+      if (this.speed <= PLAYER.walkSpeed) {
+        targetFovBonus = (this.speed / PLAYER.walkSpeed) * VIEW.dynamicFov.walkBonus;
+      } else {
+        const over = saturate((this.speed - PLAYER.walkSpeed) / (PLAYER.strollSpeed - PLAYER.walkSpeed));
+        targetFovBonus = VIEW.dynamicFov.walkBonus + over * (VIEW.dynamicFov.strollBonus - VIEW.dynamicFov.walkBonus);
+      }
+    }
+    this.currentFovBonus = damp(this.currentFovBonus, targetFovBonus, VIEW.dynamicFov.lambda, dt);
+
+    if (Math.abs(this.camera.fov - (this.baseFov + this.currentFovBonus)) > 0.01) {
+      this.camera.fov = this.baseFov + this.currentFovBonus;
+      this.camera.updateProjectionMatrix();
+    }
+
+    const accel = dt > 0 ? (this.speed - this.previousSpeed) / dt : 0;
+    this.previousSpeed = this.speed;
+
     this.gaitPhase += this.speed * bob.cyclesPerMetre * Math.PI * 2 * dt;
-    this.gaitWeight = damp(this.gaitWeight, speedRatio, bob.startLambda, dt);
+    this.gaitWeight = damp(this.gaitWeight, speedRatio, phys.gaitWeightLambda, dt);
 
-    // A small, deliberately uneven blend reads more like weight transfer than
-    // a looped head-bob. The incommensurate secondary terms make each step feel
-    // related without ever tracing the exact same path in the short term.
     const phase = this.gaitPhase;
-    const verticalGait =
-      Math.sin(phase) * 0.68 +
-      Math.sin(phase * 2.13 + 0.8) * 0.18 +
-      Math.sin(phase * 0.47 + 1.6) * 0.14;
-    const sideGait =
-      Math.sin(phase + 0.35) * 0.78 + Math.sin(phase * 2.07 + 2.1) * 0.22;
+    const asymmetry = 1.0 + 0.15 * Math.sin(phase * 0.5);
+    const verticalGait = -Math.abs(Math.sin(phase)) * asymmetry + Math.sin(phase * 2.13 + 0.8) * 0.1;
+    const sideGait = Math.sin(phase) * 0.8 + Math.sin(phase * 2.07 + 2.1) * 0.2;
+    const pitchGait = -Math.abs(Math.sin(phase + 0.15)) * asymmetry + Math.sin(phase * 2.0 + 0.5) * 0.15;
 
-    const verticalTarget = verticalGait * bob.amplitude * this.gaitWeight * this.motionScale;
-    const sideTarget = sideGait * bob.sway * this.gaitWeight * this.motionScale;
-    // These filtered offsets preserve responsive controls while giving the
-    // body a moment to catch up and settle after a start, turn, or stop.
-    this.verticalMotion = damp(this.verticalMotion, verticalTarget, bob.settleLambda, dt);
-    this.sideMotion = damp(this.sideMotion, sideTarget, bob.settleLambda, dt);
+    const targetVertical = verticalGait * bob.verticalAmplitude * this.gaitWeight * this.motionScale;
+    const targetSide = sideGait * bob.swayAmplitude * this.gaitWeight * this.motionScale;
 
+    // Lean into the movement direction
+    const inputPitch = -this.input.moveForward * (phys.movementLeanPitch || 0);
+    const inputRoll = -this.input.moveRight * (phys.movementLeanRoll || 0);
+
+    const targetPitch = (pitchGait * bob.pitchAmplitude * this.gaitWeight + accel * phys.accelPitchMultiplier + inputPitch) * this.motionScale;
+    const targetZ = accel * phys.accelZMultiplier * this.motionScale;
+
+    const lookRoll = clamp(-this.look.yawRate * phys.turnRollMultiplier, -phys.turnRollMax, phys.turnRollMax);
+    const gaitRoll = sideGait * bob.swayAmplitude * 0.4 * this.gaitWeight;
+    const targetRoll = (lookRoll + gaitRoll + inputRoll) * this.motionScale;
+
+    const stiffness = phys.springStiffness;
+    const damping = phys.springDamping;
+    const updateSpring = (pos: number, vel: number, target: number) => {
+        const force = (target - pos) * stiffness - vel * damping;
+        const newVel = vel + force * dt;
+        const newPos = pos + newVel * dt;
+        return [newPos, newVel];
+    };
+
+    [this.springPos.vertical, this.springVel.vertical] = updateSpring(this.springPos.vertical, this.springVel.vertical, targetVertical);
+    [this.springPos.side, this.springVel.side] = updateSpring(this.springPos.side, this.springVel.side, targetSide);
+    [this.springPos.pitch, this.springVel.pitch] = updateSpring(this.springPos.pitch, this.springVel.pitch, targetPitch);
+    [this.springPos.roll, this.springVel.roll] = updateSpring(this.springPos.roll, this.springVel.roll, targetRoll);
+    [this.springPos.z, this.springVel.z] = updateSpring(this.springPos.z, this.springVel.z, targetZ);
+
+    const breatheTime = elapsed * PLAYER.breathe.rate;
     const breathe =
-      Math.sin(elapsed * PLAYER.breathe.rate) *
+      (Math.sin(breatheTime) + Math.sin(breatheTime * 2.1) * 0.25) *
       PLAYER.breathe.amplitude *
       (1 - speedRatio) *
       this.motionScale;
 
-    // Right for the current yaw. This offsets only the camera body, never the
-    // player position, so collision and grass-following remain unchanged.
     const rightX = Math.cos(this.look.yaw);
     const rightZ = -Math.sin(this.look.yaw);
+    const forwardX = Math.sin(this.look.yaw);
+    const forwardZ = Math.cos(this.look.yaw);
 
     this.camera.position.set(
-      this.position.x + rightX * this.sideMotion,
-      this.position.y + PLAYER.eyeHeight + this.verticalMotion + breathe,
-      this.position.z + rightZ * this.sideMotion,
+      this.position.x + rightX * this.springPos.side + forwardX * this.springPos.z,
+      this.position.y + PLAYER.eyeHeight + this.springPos.vertical + breathe,
+      this.position.z + rightZ * this.springPos.side + forwardZ * this.springPos.z,
     );
 
-    // Handed to the look system, which folds it in as screen roll next frame.
-    this.look.roll = this.sideMotion * (bob.roll / bob.sway);
+    this.look.roll = this.springPos.roll;
+    this.look.pitchOffset = this.springPos.pitch;
   }
 }

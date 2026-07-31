@@ -21,9 +21,13 @@ export const VIEW = {
   fovDesktop: 62,
   /** Wider on a phone: a narrow FOV on a small screen feels claustrophobic. */
   fovMobile: 70,
-  /** Close enough that the floating camera never clips. */
   near: 0.05,
   far: 900,
+  dynamicFov: {
+    walkBonus: 1.5,
+    strollBonus: 3.5,
+    lambda: 3.0,
+  },
 } as const;
 
 export const SUN = {
@@ -50,18 +54,18 @@ export const FOG = {
    * it toward rose lets greens and blues survive into the mid-ground.
    */
   color: 0xe8a695,
-  /** Light enough that the mid-ground keeps its own colour. */
-  density: 0.0034,
+  /** Light enough that the mid-ground keeps its own colour, but hides the far grass fade. */
+  density: 0.0037,
 } as const;
 
 export const PLAYER = {
   start: { x: 0, z: 55 },
   eyeHeight: 1.62,
-  walkSpeed: 1.25,
-  strollSpeed: 1.9,
+  walkSpeed: 2.1,
+  strollSpeed: 3.1,
   /** Separate rates so arrival and departure both ease, and departure lingers. */
-  accelLambda: 2.4,
-  decelLambda: 3.4,
+  accelLambda: 3.5,
+  decelLambda: 4.5,
   /** Radians per pixel of pointer movement. */
   lookSensitivity: 0.0022,
   /** Low enough to feel weighty, high enough not to feel laggy. */
@@ -73,14 +77,23 @@ export const PLAYER = {
    * at a fixed tempo while they coast to a stop.
    */
   bob: {
-    cyclesPerMetre: 0.62,
-    amplitude: 0.0135,
-    sway: 0.018,
-    roll: 0.0075,
-    startLambda: 2.2,
-    settleLambda: 3.3,
+    cyclesPerMetre: 0.45,
+    verticalAmplitude: 0.026,
+    swayAmplitude: 0.028,
+    pitchAmplitude: 0.012,
   },
-  breathe: { rate: 1.6, amplitude: 0.008 },
+  physics: {
+    gaitWeightLambda: 3.5,
+    springStiffness: 85,
+    springDamping: 12,
+    accelPitchMultiplier: 0.012,
+    accelZMultiplier: 0.015,
+    turnRollMultiplier: 0.008,
+    turnRollMax: 0.03,
+    movementLeanRoll: 0.015,
+    movementLeanPitch: 0.01,
+  },
+  breathe: { rate: 1.4, amplitude: 0.012 },
   /** Stop this far short of the waterline rather than wading in. */
   shoreMargin: 0.6,
 } as const;
@@ -251,19 +264,29 @@ export const GRASS = {
     tipSun: 0xbdad69,
   },
   /**
-   * Broad, smooth meadow variation shared by blade and cluster LODs. Keeping
-   * this in world space makes the field read as one living surface instead of
-   * independently coloured instances.
+   * Ecological noise fields driving the mid-scale vegetation.
    */
-  colourField: {
-    scale: 0.018,
-    valueVariation: 0.075,
+  ecology: {
+    /** 40m scale baseline. High richness = taller, greener, more flowers. */
+    richness: {
+      scale: 0.025,
+      heightInfluence: 0.25, // +/- 25% height
+      colorInfluence: 0.4, // Pulls towards deep green
+    },
+    /** 20m scale competition. High overgrowth = much taller, spiky, slightly drier. */
+    overgrowth: {
+      scale: 0.05,
+      heightInfluence: 0.35,
+      colorInfluence: 0.3, // Pulls towards dry gold
+    },
+    /** 15m scale floral patches, gated by richness and overgrowth. */
+    floral: {
+      scale: 0.065,
+      density: 0.65, // How aggressive the flower gating is
+    },
+    /** Value variation multiplier for shading. */
+    valueVariation: 0.08,
     sunHighlight: 0.2,
-  },
-  /** Gentle world-space height drift layered over each blade's existing random size. */
-  sizeField: {
-    scale: 0.1,
-    variation: 0.14,
   },
   /**
    * Backlit glow through the blades — the biggest single win at golden hour, but
@@ -312,13 +335,26 @@ export const GRASS = {
         tileSize: 50,
         ringTiles: 7,
         density: 0.14,
-        fadeStart: 135,
-        fadeEnd: 150,
+        fadeStart: 110,
+        fadeEnd: 140,
         nearFadeStart: 46,
         nearFadeEnd: 62,
         clusterWidth: 4,
         height: [1.2, 2.4],
         width: [3.2, 4.8],
+      },
+      {
+        kind: 'clusters',
+        tileSize: 90,
+        ringTiles: 5,
+        density: 0.04,
+        fadeStart: 135,
+        fadeEnd: 180,
+        nearFadeStart: 80,
+        nearFadeEnd: 120,
+        clusterWidth: 4.5,
+        height: [1.2, 2.4],
+        width: [3.6, 5.2],
       },
     ],
     medium: [
@@ -350,13 +386,26 @@ export const GRASS = {
         tileSize: 60,
         ringTiles: 5,
         density: 0.12,
-        fadeStart: 105,
-        fadeEnd: 118,
+        fadeStart: 80,
+        fadeEnd: 110,
         nearFadeStart: 38,
         nearFadeEnd: 54,
         clusterWidth: 4.5,
         height: [1.2, 2.4],
         width: [3.6, 5.2],
+      },
+      {
+        kind: 'clusters',
+        tileSize: 80,
+        ringTiles: 5,
+        density: 0.03,
+        fadeStart: 105,
+        fadeEnd: 150,
+        nearFadeStart: 60,
+        nearFadeEnd: 95,
+        clusterWidth: 5.0,
+        height: [1.2, 2.4],
+        width: [4.0, 5.8],
       },
     ],
     low: [
@@ -375,16 +424,137 @@ export const GRASS = {
         tileSize: 30,
         ringTiles: 3,
         density: 0.9,
-        fadeStart: 26,
-        fadeEnd: 30,
+        fadeStart: 22,
+        fadeEnd: 28,
         nearFadeStart: 5,
         nearFadeEnd: 10,
         clusterWidth: 1.6,
         height: [0.5, 0.95],
         width: [1.2, 1.8],
       },
+      {
+        kind: 'clusters',
+        tileSize: 60,
+        ringTiles: 3,
+        density: 0.15,
+        fadeStart: 25,
+        fadeEnd: 60,
+        nearFadeStart: 15,
+        nearFadeEnd: 25,
+        clusterWidth: 4.0,
+        height: [1.0, 2.0],
+        width: [3.0, 4.5],
+      },
     ],
   } satisfies Record<QualityTier, readonly GrassBand[]>,
+} as const;
+
+/**
+ * Phase 5 prop direction. Natural props use irregular low-poly silhouettes and
+ * broad colour families; the fence stays visibly hand-built. Counts are tiered
+ * so the composition survives on mobile without changing the layout rules.
+ */
+export const PROPS = {
+  scatter: {
+    attemptsPerItem: 18,
+    startClearance: 5,
+  },
+  trees: {
+    hero: {
+      x: TERRAIN.heroRise.x,
+      z: TERRAIN.heroRise.z,
+      scale: 1.18,
+      seed: 517,
+    },
+    scattered: {
+      seed: 1049,
+      count: { high: 11, medium: 8, low: 5 },
+      bounds: [-132, 132, -62, 112] as const,
+      minNormalY: 0.9,
+      lakeClearance: 1.5,
+      startClearance: 34,
+      scale: [0.58, 0.92] as const,
+    },
+    trunk: {
+      height: 7.4,
+      radius: 0.68,
+      color: 0x68452f,
+      lightColor: 0x8c6040,
+    },
+    canopy: {
+      radius: 3.35,
+      sway: 0.24,
+      colors: [0x526b34, 0x6f8140, 0x82914b, 0x9a9953] as const,
+    },
+  },
+  rocks: {
+    seed: 2081,
+    count: { high: 28, medium: 20, low: 13 },
+    bounds: [-145, 145, -78, 132] as const,
+    minNormalY: 0.82,
+    lakeClearance: 0.45,
+    startClearance: 9,
+    scale: [0.45, 1.45] as const,
+    colors: [0x77675a, 0x8b7765, 0x6e7169, 0x9a806b] as const,
+  },
+  fence: {
+    start: { x: 48, z: 76 },
+    end: { x: 79, z: -28 },
+    posts: 17,
+    curve: 5.5,
+    postHeight: 1.7,
+    postRadius: 0.105,
+    railRadius: 0.075,
+    color: 0x8a5738,
+  },
+  flowers: {
+    seed: 4093,
+    count: { high: 60000, medium: 25000, low: 10000 },
+    bounds: [-140, 140, -100, 130] as const,
+    minNormalY: 0.86,
+    lakeClearance: 0.3,
+    startClearance: 2.7,
+    scale: [0.72, 1.1] as const,
+    stemColor: 0x496c32,
+    lightColor: 0xffedcf,
+    colors: [0xffd46f, 0xffa79a, 0xf4d3ef, 0xb9c8ff, 0xffeee0] as const,
+    chunkSize: 32,
+    fadeStart: 85,
+    fadeEnd: 105,
+  },
+} as const;
+
+export const POLLEN = {
+  count: { high: 8000, medium: 4000, low: 1000 },
+  boxSize: 24, // 24x24x24m box looping around camera
+  color: 0xffe6b3,
+  size: 0.08,
+} as const;
+
+export const FLOATING_CAMERA = {
+  /** Camera-space anchor: lower-right, close enough to feel present but never HUD-like. */
+  anchor: [0.47, -0.32, -0.93] as const,
+  scale: 0.26,
+  followLambda: 5.0,
+  rotationLambda: 6.0,
+  idleDrift: { amount: 0.016, rate: 0.55 },
+  movementLift: 0.024,
+  lookOffset: 0.028,
+  bank: 0.045,
+  rotationDeg: { x: -5, y: -12, z: -2 },
+  screen: {
+    width: 0.42,
+    height: 0.265,
+    position: [0, 0.24, 0.229] as const,
+    colorTop: 0xf3ac78,
+    colorBottom: 0x6f7382,
+  },
+} as const;
+
+export const TOUCH = {
+  lookSensitivity: 0.0042,
+  holdDelay: 0.12,
+  dragDeadzone: 1.5,
 } as const;
 
 /** Unit wind direction on the ground plane. */

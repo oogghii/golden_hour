@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { EngineContext, System } from '../core/System';
-import { TERRAIN, WORLD } from '../core/Settings';
+import { GRASS, PROPS, TERRAIN, WORLD } from '../core/Settings';
 import { saturate, smoothstep } from '../util/math';
 import { fbm, type HeightField } from './HeightField';
 
@@ -71,6 +71,14 @@ export class Terrain implements System {
     const earth = new THREE.Color(palette.earth);
     const colour = new THREE.Color();
 
+    const grassMid = new THREE.Color(GRASS.palette.mid);
+    const grassTip = new THREE.Color(GRASS.palette.tip);
+    const flowerWarm = new THREE.Color(PROPS.flowers.colors[0]);
+    const flowerPink = new THREE.Color(PROPS.flowers.colors[1]);
+
+    const distantBase = new THREE.Color();
+    const floralColor = new THREE.Color();
+
     for (let i = 0; i < position.count; i++) {
       const x = position.getX(i);
       const y = position.getY(i);
@@ -91,10 +99,40 @@ export class Terrain implements System {
       // from the patch noise turns the whole field into sand.
       colour.lerp(dryGold, saturate(smoothstep(0.42, 0.95, elevation) * (0.55 + patch * 0.45)));
       colour.lerp(earth, smoothstep(0.14, 0.42, slope));
+
+      // Distant Meadow Tapestry
+      // Fade to a varied grass color at the edges of the world so the distant grass
+      // LOD cutoff is invisible. We modulate it by elevation and patch noise so it
+      // feels organic rather than like a perfect circle.
+      const dist = Math.hypot(x, z);
+      const edgeBlend = smoothstep(120, 160, dist + patch * 20 - elevation * 15);
+      
+      if (edgeBlend > 0) {
+        // 1. Large-scale vegetation grouping (broad patches of dark/light grass)
+        const vegGroup = fbm(x * 0.015, z * 0.015, 2);
+        distantBase.copy(grassMid).lerp(grassTip, smoothstep(-0.4, 0.6, vegGroup));
+        
+        // 2. Subconscious floral drifts (high frequency, tightly clustered)
+        const floralNoise = fbm(x * 0.07 + 133, z * 0.07 - 42, 2);
+        // Only appear where noise peaks, keeping it sparse and irregular
+        const floralAmount = saturate((floralNoise - 0.25) * 1.5);
+        
+        // Alternate smoothly between warm yellow fields and cooler pink fields
+        const floralHue = fbm(x * 0.012 - 50, z * 0.012 + 70, 1);
+        floralColor.copy(flowerWarm).lerp(flowerPink, smoothstep(-0.2, 0.2, floralHue));
+        
+        // Blend into the base very subtly (max 15% opacity) so it doesn't look painted
+        distantBase.lerp(floralColor, floralAmount * 0.15);
+        
+        colour.lerp(distantBase, edgeBlend);
+      }
+
       // Strong contrast on purpose. A backlit slope lit only by the hemisphere
       // fill has almost no shading variation of its own, so the value break-up
       // has to come from here or the ground reads as one flat wash.
-      colour.multiplyScalar(0.74 + fine * 0.42);
+      // We add a tiny bit of extra fine contrast at distance to simulate texture
+      // without making it faceted.
+      colour.multiplyScalar(0.74 + fine * (0.42 + edgeBlend * 0.1));
 
       colours[i * 3] = colour.r;
       colours[i * 3 + 1] = colour.g;

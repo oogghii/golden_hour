@@ -10,9 +10,9 @@ anything visual — several of these values look wrong in isolation and are load
 | Stack | Vite + TypeScript. Lightweight and modular, no unnecessary abstraction |
 | Grass | Hybrid — real instanced blades near, alpha-textured cross-quad clusters far |
 | World | Finite art-directed valley, ~350 m walkable, soft haze boundaries not walls |
-| Mobile input | Drag anywhere to look, touch-and-hold to walk, second finger to stroll. No visible control of any kind. **Not built yet (Phase 8)** |
+| Mobile input | Drag anywhere to look, touch-and-hold to walk, second finger to stroll. No visible control of any kind. **Implemented in Phase 8; hardware validation pending** |
 | Mobile target | **Stable 30 fps, not 60.** Atmosphere beats frame rate. Subtle camera-only motion blur is explicitly sanctioned to help |
-| Camera rear screen | Static/emissive for the first milestone, architected so a live render target drops in without refactoring. **Not built yet (Phase 7)** |
+| Camera rear screen | Static/emissive for the first milestone, behind a `CameraScreen` interface so a live render target drops in without refactoring. **Implemented in Phase 7** |
 | Build order | Post-processing pulled ahead of props, so the palette is tuned once against final grading |
 
 ## Do not change without understanding why
@@ -139,7 +139,17 @@ only camera matrices, moving geometry never smears — the wind stays crisp. Do 
 - **Grass has three bands, not two.** Two materials, three rings. Two bands left either
   a sparse mid-ground or an unaffordable triangle count.
 - **`?fps=` URL override added** beyond the plan, to compare cadences on desktop.
+- **The Blockbench camera is merged at load time.** Its 15 exported mesh nodes
+  share one material; preserving them individually doubled their draw cost in the
+  shadow pass. Phase 9 bakes their transforms into one body mesh and keeps the
+  static screen as the only second draw.
+
+## Phase 10: Mid-Scale Ecology
+
+- **No new draw calls for mid-scale vegetation.** The mid-scale ecology (40m Richness, 20m Overgrowth, 15m Floral) is entirely computed via `fbm` inside the existing grass vertex/fragment shaders and CPU scatter logic. This preserves performance while completely changing the visual structure.
+- **Ecology is multiplicative, not deterministic.** We deliberately use three overlapping procedural noise fields instead of one biome map. This ensures flowers don't spawn in obvious circular blobs, and tall grass doesn't *always* mean green grass. The multiplicative intersection of fields (`Richness * (1 - Overgrowth) * Floral`) provides genuinely organic variance.
+- **Distant Tapestry.** The `Terrain.ts` vertex shader fakes the continuation of the grass beyond 120m by painting the same procedural floral and richness noise directly onto the ground plane.
 
 ## Still unresolved
 
-See `STATUS.md`. The frame cap does not hit its target and is the top open item.
+See `STATUS.md`. Real iPhone 15 Safari validation is the top open item.

@@ -1,23 +1,26 @@
 # Status
 
-Last updated at the end of Phase 6. Read this first, then `DECISIONS.md` before
+Last updated at the end of Phase 9. Read this first, then `DECISIONS.md` before
 changing anything visual.
 
 ## Current phase
 
-**Phase 6 (post-processing and frame cadence) is complete.** Phases 5, 7, 8 and 9
-have not been started. The build order was deliberately changed from the original
-plan — post-processing was pulled ahead of props so the palette would only need
-tuning once, against final grading.
+**Phases 1–10 are implemented.** Phase 7 added the floating camera, Phase 8 added
+invisible touch controls, Phase 9 merged and tuned the camera asset, and Phase 10
+added ecological mid-scale structures and traversal speed tuning. Real-device validation
+is still required before calling the mobile milestone shipped.
 
 Verified at the end of this phase:
 
 - `npx tsc --noEmit` — clean
-- `npx vite build` — clean (570 kB, almost all of it three.js; the chunk-size
+- `npx vite build` — clean (730 kB including three.js, GLTFLoader and the embedded
+  Blockbench camera; the chunk-size
   warning is expected and not worth splitting)
-- No console errors or shader-compile failures
-- Desktop `high` tier: **168 fps, 49 draw calls, 610k triangles** at 1280×720
-- Walked ~40 steps with no hitch and no holes, confirming grass tile recycling
+- No application console errors or shader-compile failures in the in-app browser
+- Desktop `high`: **~170 fps, 66 calls, 739k triangles**
+- Forced `medium` at 30 fps: **30 fps, 49 calls, 438k triangles**
+- Forced `low` at 30 fps: **30 fps, 28 calls, 172k triangles**
+- `?fps=30`: **30 fps, 33.3 ms budget** against a ~170 Hz rAF source
 
 ## Completed systems
 
@@ -39,55 +42,45 @@ Verified at the end of this phase:
 | Wind | `src/grass/wind.ts` | One shared uniform set; `WIND_GLSL` is the single sway function |
 | Grass | `src/grass/GrassField.ts` | Three player-following bands, two materials, deterministic tiles |
 | Post-processing | `src/render/PostFX.ts` | HDR target + depth, bloom chain, composite with camera motion blur |
+| Prop scatter | `src/world/Scatter.ts` | Deterministic rejection scatter for slope, water and protected clearings |
+| Props | `src/props/PropLayer.ts` | Merged trees, rocks and fence plus one instanced flower draw; shared wind |
+| Floating camera | `src/camera/FloatingCamera.ts` | Merged Blockbench model with world-space inertia and look-rate banking |
+| Camera screen | `src/camera/StaticCameraScreen.ts` | Static emissive first-milestone implementation of `CameraScreen` |
+| Touch input | `src/player/input/TouchInput.ts` | Drag to look, hold to walk, second finger for faster stroll; no visible controls |
 | Boot UI | `src/ui/Boot.ts` | The only UI in the project. One line of type |
 | Dev overlay | `src/dev/DevStats.ts` | DEV-only, dynamically imported so it never ships |
 
 ## Known issues
 
-### 1. Frame cap does not land on its target — OPEN, highest priority
+### 1. Real mobile hardware — OPEN, highest priority
 
-`?fps=30` produced readings of **40 fps and later 58 fps**, never ~30. Two
-implementations were tried (wall-clock comparison with an epsilon, then the
-current carry-over accumulator in `Engine.tick`) and neither hit the target.
-The arithmetic says the accumulator should yield ~29 fps at any refresh rate, so
-something is wrong that reading the code did not reveal.
-
-This is **implemented but unverified**. Do not claim it works.
-
-Complicating factors while debugging: the in-app browser pane's own rAF timing is
-unstable, and the DevStats overlay intermittently renders blank after a reload.
-`?fps=30` is also lost when navigating, because the harness strips query strings —
-type the URL manually.
-
-Next step: DevStats already prints `budget <ms>` (from `Engine.frameBudget`) and
-`raf <Hz>` for exactly this. Read those two numbers first. If `budget` is not
-33.3 ms then `quality.frameCap` is not reaching `minFrameTime`; if `raf` is far
-from the presented fps then the measurement, not the cap, is wrong.
+The cap is now verified in the in-app browser: `?fps=30` reports **30 fps** with a
+**33.3 ms** budget against a ~170 Hz rAF source. The earlier 40/58 readings were
+caused by test/query state, not the accumulator. Touch controls and the automatic
+medium tier still need an iPhone 15 Safari pass for cadence, thermals, pointer
+semantics, MSAA depth resolve and safe-area behaviour.
 
 ### 2. Visual gaps
 
-- **Mid-ground is thin.** A visible band of near-bare terrain sits between the
-  near blade band (fades 16→20 m) and the lake. The cluster bands cover it but
-  read as sparse tufts rather than continuous field.
-- **Terrain is one flat wash.** It is backlit, so it has almost no shading
-  variation of its own and the vertex-colour break-up barely reads. Deliberately
-  left alone: props and flowers will cover most of it. Do not sink time here
-  before Phase 5.
 - **Overall image is soft and low-contrast.** Partly intended (haze, vignette,
   grain), but it is close to the edge of muddy. Worth a contrast pass with fresh
   eyes.
 - **Lake reads silver rather than golden.** Correct behaviour — it mirrors the sky
   along the sun azimuth and the sun is bright enough to desaturate — but it may
   want more warmth.
-- **No objects at all.** No trees, rocks, fences or flowers yet (Phase 5), and no
-  floating camera (Phase 7). The scene is landscape only, which is why it reads
-  emptier than the reference image.
+- **The default sunward view remains intentionally open.** Phase 5 props now
+  populate the walkable field, but the hero tree and fence sit off the initial
+  centre line so the lake and low sun keep their clear corridor.
+- **Low tier is visibly sparse beyond its second grass band.** This is now
+  verified rather than theoretical. Do not retune the protected grass coverage
+  without owner approval; the iPhone 15 target selects medium, not low.
 
 ### 3. Not verified
 
-- **Anything on real hardware.** No iPhone 15 test has happened. Chrome is not
-  installed on this machine, so the in-app pane was the only browser available.
-- **The `medium` and `low` tiers** have never been run. Only `high` has.
+- **Anything on real hardware.** No iPhone 15 test has happened. The in-app pane
+  remains the only browser used for this milestone.
+- **Touch gestures.** Implemented, but the desktop browser does not expose a real
+  multi-touch surface for validating capture and cancellation semantics.
 - **MSAA + depth texture together.** `PostFX` requests `samples: 4` on `high`
   alongside a `DepthTexture`. It renders without error and motion blur appears to
   work, but depth-resolve correctness under MSAA was not specifically tested. If
@@ -96,21 +89,7 @@ from the presented fps then the measurement, not the cap, is wrong.
 
 ## Exact next task
 
-**Phase 5 — props.** In this order:
-
-1. `src/world/Scatter.ts` — deterministic placement from `hash3`/`createRng`,
-   rejecting steep slopes, submerged ground, and a radius around the player start.
-2. `src/props/TreeFactory.ts` — the hero tree first, on the rise the height field
-   already provides at **(-42, 30)** (`TERRAIN.heroRise`). Low-poly, flat-shaded,
-   canopy blobs from `IcosahedronGeometry(r, 0)`. Share `WIND_GLSL` so canopies
-   move with the field.
-3. `RockFactory`, `FenceFactory` (a run along the right-hand ridge, merged with
-   `mergeGeometries` into one draw call), `FlowerFactory` (instanced, per-instance
-   colour, wind-shared, dense in the foreground).
-4. `src/props/PropLayer.ts` — keep the total added draw calls in single digits.
-
-Then re-check the terrain wash and the mid-ground thinness, which props may fix
-for free.
-
-Phase 7 (floating camera) is the other high-value piece and is independent of
-props. `FirstPersonCamera.yawRate`/`pitchRate` already exist for its banking.
+**Real-device acceptance pass on iPhone 15 Safari.** Confirm touch look, hold-to-walk,
+second-finger stroll, stable 30 fps, MSAA depth resolve, thermal behaviour and
+floating-camera framing in the mobile FOV. Tune only touch constants or quality
+settings in response to measured device behaviour.

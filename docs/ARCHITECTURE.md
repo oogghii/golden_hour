@@ -13,8 +13,10 @@ core/
   RenderPipeline.ts  presentation seam (DirectRenderPipeline | PostFX)
   Quality.ts       device tier -> QualitySettings
   Settings.ts      every art-direction constant in the project
-world/             HeightField, Terrain, Sky, Water, Backdrop
+world/             HeightField, Terrain, Sky, Water, Backdrop, Pollen, Scatter
 grass/             wind, BladeGeometry, grassTexture, GrassMaterials, GrassField
+props/             factories + one merged/instanced PropLayer
+camera/            FloatingCamera + swappable CameraScreen implementation
 player/            Player, FirstPersonCamera, input/
 lighting/          Lighting
 render/            PostFX + shaders/
@@ -47,7 +49,9 @@ Sky, Backdrop, Terrain, Water     world geometry
 DesktopInput                      gathers raw input
 FirstPersonCamera                 consumes look delta, writes camera orientation
 Player                            moves along that heading, writes camera position
+FloatingCamera                    follows the new view pose with world-space lag
 GrassField                        follows the player's new position
+PropLayer                         static composition; shares height + wind
 Lighting                          reframes its shadow box around the camera
 wind updater                      advances the shared wind clock
 DevStats                          reads the frame's stats last
@@ -124,6 +128,8 @@ is **not** a frame count — use `Engine.presentedFrames`.
 | Photography | New system reading `FirstPersonCamera` + `Player`; the floating camera's screen is already planned as a separate named mesh with its own material |
 | Floating camera screen going live | Write `LiveCameraScreen` against the `CameraScreen` interface described in `DECISIONS.md`; one line changes in `main.ts` |
 | Animals | Systems with their own instanced meshes; sample `HeightField.heightAt` to sit on the ground |
+| Prop scatter | `src/world/Scatter.ts` | Extracted deterministic rejection scatter logic |
+| Pollen | `src/world/Pollen.ts` | Simulation of rising particle field near player |
 | Sky objects | `world/Sky.ts` renders at `renderOrder -1000` with `depthTest:false`; add objects as normal scene children, they will draw over it |
 | Sound | A system; use `update(dt, elapsed)` and read `Player.speed` for footsteps |
 | Progression | A system holding state; nothing else stores game state today |

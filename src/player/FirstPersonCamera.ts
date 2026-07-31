@@ -14,6 +14,8 @@ export class FirstPersonCamera implements System {
   pitch = 0;
   /** Screen roll, written by the player's head bob. */
   roll = 0;
+  /** Screen pitch offset, written by the player's head bob. */
+  pitchOffset = 0;
   /** Radians per second, smoothed. Read by the floating camera. */
   yawRate = 0;
   pitchRate = 0;
@@ -49,7 +51,7 @@ export class FirstPersonCamera implements System {
     this.pitchRate = damp(this.pitchRate, (this.pitch - previousPitch) / dt, 12, dt);
 
     // YXZ applies Z innermost, so roll lands in screen space where we want it.
-    this.euler.set(this.pitch, this.yaw, this.roll);
+    this.euler.set(this.pitch + this.pitchOffset, this.yaw, this.roll);
     this.camera.quaternion.setFromEuler(this.euler);
   }
 }
