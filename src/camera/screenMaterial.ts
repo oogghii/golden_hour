@@ -27,6 +27,10 @@ uniform sampler2D uFeed;
 uniform sampler2D uChrome;
 uniform float uGain;
 uniform float uFrozen;
+uniform sampler2D uPhoto;
+uniform float uPhotoMix;   // 0 live feed, 1 photograph
+uniform float uBlackout;   // the mirror
+uniform float uFlash;
 uniform vec4  uFocusRect;      // x0, y0, x1, y1 in uv
 uniform float uFocusConfirm;   // 0 searching, 1 locked
 uniform vec2  uReticle;
@@ -76,28 +80,36 @@ void main() {
   feed = feed * 0.94 + 0.045;
   feed *= mix(1.0, uFrozenDim, uFrozen);
 
-  vec3 color = feed;
+  // The photograph is already developed — gain, ACES and sRGB all happened in
+  // the capture pass — so it is mixed in AFTER the feed's own grade rather than
+  // through it. Grading it a second time would darken every review.
+  vec3 shot = texture2D(uPhoto, vUv).rgb;
+  vec3 color = mix(feed, shot, uPhotoMix);
+
+  // Everything below is the viewfinder's furniture, and a photograph is never
+  // shown with viewfinder markings drawn over it.
+  float live = 1.0 - uPhotoMix;
 
   // Rule of thirds.
   float grid = 0.0;
   grid += line(vUv.x, 1.0 / 3.0, 0.0016) + line(vUv.x, 2.0 / 3.0, 0.0016);
   grid += line(vUv.y, 1.0 / 3.0, 0.0024) + line(vUv.y, 2.0 / 3.0, 0.0024);
-  color = mix(color, uPrimary, clamp(grid, 0.0, 1.0) * uGridOpacity);
+  color = mix(color, uPrimary, clamp(grid, 0.0, 1.0) * uGridOpacity * live);
 
   // Hover and press washes.
   float hover = rectFill(vUv, uHoverRect);
-  color = mix(color, uPrimary, hover * mix(0.08, 0.18, uPressed));
+  color = mix(color, uPrimary, hover * mix(0.08, 0.18, uPressed) * live);
 
   // Focus frame.
   vec3 focusColor = mix(uPrimary, uConfirm, uFocusConfirm);
   float focus = cornerTicks(vUv, uFocusRect, 0.004, 0.03);
-  color = mix(color, focusColor, focus * 0.95);
+  color = mix(color, focusColor, focus * 0.95 * live);
 
   // Level indicator, two short segments that tilt with the body's roll.
   vec2 centred = vUv - 0.5;
   float rotated = centred.y * cos(uRoll) - centred.x * sin(uRoll);
   float span = step(0.16, abs(centred.x)) * step(abs(centred.x), 0.26);
-  color = mix(color, uPrimary, span * line(rotated, 0.0, 0.004) * 0.6);
+  color = mix(color, uPrimary, span * line(rotated, 0.0, 0.004) * 0.6 * live);
 
   // Chrome, premultiplied against the feed.
   vec4 chrome = texture2D(uChrome, vUv);
@@ -113,12 +125,22 @@ void main() {
   float outer = 1.0 - smoothstep(radius - 0.0035, radius, d);
   float inner = 1.0 - smoothstep(radius - 0.0075, radius - 0.004, d);
   float ring = outer - inner;
-  color = mix(color, uPrimary, ring * uReticleAlpha);
+  color = mix(color, uPrimary, ring * uReticleAlpha * live);
 
-  // Glass: a corner sheen and a soft edge falloff.
+  // Glass: a corner sheen and a soft edge falloff. Kept in every mode — the
+  // display is still a display when it is showing a photograph.
   float vignette = 1.0 - 0.34 * pow(length(centred * vec2(1.15, 1.0)) * 1.4, 2.0);
   color *= clamp(vignette, 0.0, 1.0);
   color += uPrimary * 0.05 * (1.0 - smoothstep(0.0, 0.75, vUv.x + (1.0 - vUv.y)));
+
+  // The mirror. Multiplied last so it takes the glass down with it: a blacked
+  // out finder does not have a lit sheen floating on top of it.
+  color *= 1.0 - uBlackout;
+
+  // A hard inset line as the black lifts — the one moment the display is
+  // allowed to be brighter than its own emissive ceiling.
+  vec4 flashRect = vec4(0.045, 0.055, 0.955, 0.945);
+  color += uPrimary * uFlash * rectOutline(vUv, flashRect, 0.012) * 1.6;
 
   gl_FragColor = vec4(color * uEmissive, 1.0);
 }
@@ -134,6 +156,10 @@ export function createScreenMaterial(): THREE.ShaderMaterial {
       uChrome: { value: null },
       uGain: { value: 1 },
       uFrozen: { value: 0 },
+      uPhoto: { value: null },
+      uPhotoMix: { value: 0 },
+      uBlackout: { value: 0 },
+      uFlash: { value: 0 },
       uFocusRect: { value: new THREE.Vector4(0.4, 0.4, 0.6, 0.6) },
       uFocusConfirm: { value: 0 },
       uReticle: { value: new THREE.Vector2(0.5, 0.5) },

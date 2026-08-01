@@ -45,6 +45,18 @@ export class LiveCameraScreen implements CameraScreen {
     this.material.uniforms.uFrozen!.value = frozen ? 1 : 0;
   }
 
+  /** The developed photograph: the capture target in review, a decoded one in the album. */
+  setPhoto(texture: THREE.Texture | null): void {
+    this.material.uniforms.uPhoto!.value = texture;
+  }
+
+  /** The three capture envelopes, written together because they are one animation. */
+  setCapture(photoMix: number, blackout: number, flash: number): void {
+    this.material.uniforms.uPhotoMix!.value = photoMix;
+    this.material.uniforms.uBlackout!.value = blackout;
+    this.material.uniforms.uFlash!.value = flash;
+  }
+
   setGain(gain: number): void {
     this.material.uniforms.uGain!.value = gain;
   }

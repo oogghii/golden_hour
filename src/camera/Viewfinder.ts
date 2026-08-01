@@ -83,6 +83,22 @@ export class Viewfinder implements System {
     return this.target?.texture ?? null;
   }
 
+  /**
+   * Places the lens camera for this frame and returns it.
+   *
+   * Exposed so a capture photographs precisely what the viewfinder is showing.
+   * Reconstructing the pose a third time — `CameraInteraction` already does it
+   * once for the focus ray — would let the photograph drift from the frame the
+   * player actually composed. Placing it here rather than trusting this
+   * system's own `update` to have run first makes the call order-independent.
+   */
+  prepareCameraForCapture(): THREE.PerspectiveCamera | null {
+    const model = this.floating.object;
+    if (!model) return null;
+    this.placeCamera(model);
+    return this.camera;
+  }
+
   init(ctx: EngineContext): void {
     this.renderer = ctx.renderer;
     this.scene = ctx.scene;
