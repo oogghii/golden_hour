@@ -66,4 +66,11 @@ describe('VIEWFINDER', () => {
       expect(rung).toBeLessThan(VIEWFINDER.ladder.length);
     }
   });
+
+  it('renders every rung at the aspect of the screen it lands on', () => {
+    const screenAspect = FLOATING_CAMERA.screen.width / FLOATING_CAMERA.screen.height;
+    for (const rung of VIEWFINDER.ladder) {
+      expect(rung.width / rung.height).toBeCloseTo(screenAspect, 2);
+    }
+  });
 });
