@@ -1,3 +1,4 @@
+import { CameraPose } from './camera/CameraPose';
 import { FloatingCamera } from './camera/FloatingCamera';
 import { StaticCameraScreen } from './camera/StaticCameraScreen';
 import { Engine } from './core/Engine';
@@ -39,6 +40,7 @@ const look = new FirstPersonCamera(input);
 const player = new Player(heightField, look, input);
 const desktopInput = new DesktopInput(input, canvas);
 const touchInput = new TouchInput(input, canvas);
+const cameraPose = new CameraPose();
 
 engine.add(new Sky());
 engine.add(new Backdrop());
@@ -51,7 +53,7 @@ engine.add(new Water(heightField));
 engine.add(engine.quality.isTouch ? touchInput : desktopInput);
 engine.add(look);
 engine.add(player);
-engine.add(new FloatingCamera(player, look, new StaticCameraScreen()));
+engine.add(new FloatingCamera(player, look, new StaticCameraScreen(), cameraPose));
 engine.add(new GrassField(heightField, player, wind));
 engine.add(new PropLayer(heightField, wind));
 engine.add(new Pollen(player, wind));
