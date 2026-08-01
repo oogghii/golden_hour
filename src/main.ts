@@ -11,6 +11,7 @@ import { DesktopInput } from './player/input/DesktopInput';
 import { createInputState } from './player/input/InputState';
 import { TouchInput } from './player/input/TouchInput';
 import { Player } from './player/Player';
+import { CameraInteraction } from './photography/CameraInteraction';
 import { PhotographyMode } from './photography/PhotographyMode';
 import { PropLayer } from './props/PropLayer';
 import { PostFX } from './render/PostFX';
@@ -59,6 +60,11 @@ engine.add(player);
 const screen = new LiveCameraScreen(photography);
 const floatingCamera = new FloatingCamera(player, look, screen, photography.pose);
 engine.add(floatingCamera);
+// Temporary: not yet fed by real pointer events. Task 14's PhotoDesktopInput
+// drives pointerDelta/press/release/wheel from the DOM; until then this only
+// runs update() each frame (hover fade, magnetism, button spring settle).
+const interaction = new CameraInteraction(floatingCamera, screen, photography);
+engine.add(interaction);
 const viewfinder = engine.add(new Viewfinder(floatingCamera, photography, screen, engine));
 engine.add(new GrassField(heightField, player, wind));
 engine.add(new PropLayer(heightField, wind));

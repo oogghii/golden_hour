@@ -1,0 +1,268 @@
+import * as THREE from 'three';
+import { PHOTOGRAPHY } from '../core/Settings';
+import type { EngineContext, System } from '../core/System';
+import { CAMERA_LAYER, type FloatingCamera } from '../camera/FloatingCamera';
+import type { LiveCameraScreen } from '../camera/LiveCameraScreen';
+import { clamp, damp, saturate, spring } from '../util/math';
+import type { CameraActions } from './CameraActions';
+import { GestureClassifier } from './GestureClassifier';
+import { zoneAtUv, zoneCentreUv, type Zone } from './InteractionZones';
+import type { PhotographyMode } from './PhotographyMode';
+
+export type HoverTarget = Zone | 'shutterButton' | 'body' | null;
+
+/** Model units. The cap spans y 0.575 -> 0.700, so this is a plausible throw. */
+const BUTTON_TRAVEL = 0.018;
+
+/**
+ * The reticle, and what it is pointing at.
+ *
+ * Its domain is the camera's PROJECTED BOUNDS, not the screen alone — that is
+ * what lets it travel up onto the shutter button while still being constrained
+ * to the camera, never becoming a full-screen game cursor.
+ *
+ * Hover, press and activation are three separate states. Passing over a control
+ * does nothing, ever; activation needs a press and a release that agree on the
+ * target, so a slip cancels instead of misfiring.
+ */
+export class CameraInteraction implements System {
+  hovered: HoverTarget = null;
+
+  /** Screen-space NDC, clamped to the camera's projected bounds. */
+  private readonly reticle = new THREE.Vector2(0, 0);
+  private readonly gesture = new GestureClassifier();
+  private readonly raycaster = new THREE.Raycaster();
+  private readonly bounds = new THREE.Box2();
+  private readonly box = new THREE.Box3();
+  private readonly corner = new THREE.Vector3();
+  private readonly hoverRect = new THREE.Vector4();
+  private readonly screenUv = new THREE.Vector2(0.5, 0.5);
+  /** Reused so updateBounds does not allocate a Vector2 per corner, per frame. */
+  private readonly cornerNdc = new THREE.Vector2();
+  /** Reused so recentre does not allocate a Vector2 every frame while fading out. */
+  private readonly recentreTarget = new THREE.Vector2();
+
+  private camera: THREE.PerspectiveCamera | null = null;
+  private pressedTarget: HoverTarget = null;
+  private alpha = 0;
+  private idleTime = 0;
+  private pointerSpeed = 0;
+  private buttonRestY: number | null = null;
+  private readonly press$ = { velocity: 0 };
+  private pressDepth = 0;
+  /** Look deltas the reticle clamp rejected, drained by PhotoDesktopInput. */
+  readonly lookSpill = { x: 0, y: 0 };
+
+  /** `photography` satisfies CameraActions; the alias documents which role is which. */
+  private readonly actions: CameraActions;
+
+  constructor(
+    private readonly floating: FloatingCamera,
+    private readonly screen: LiveCameraScreen,
+    private readonly photography: PhotographyMode,
+  ) {
+    this.actions = photography;
+  }
+
+  init(ctx: EngineContext): void {
+    this.camera = ctx.camera;
+    this.raycaster.layers.set(CAMERA_LAYER);
+  }
+
+  /**
+   * Raw mouse delta in pixels. Whatever does not belong to the reticle is left
+   * in `lookSpill` for PhotoDesktopInput to drain into the shared input state.
+   */
+  pointerDelta(dx: number, dy: number, dt: number): void {
+    this.lookSpill.x = 0;
+    this.lookSpill.y = 0;
+    if (!this.photography.pose.isRaised) return;
+
+    const phase = this.gesture.update(dx, dy, dt);
+    if (phase !== 'reticle') {
+      this.lookSpill.x = dx;
+      this.lookSpill.y = dy;
+      return;
+    }
+
+    this.idleTime = 0;
+    this.pointerSpeed = Math.hypot(dx, dy) / Math.max(dt, 1e-4);
+
+    // Mouse travel is scaled so crossing the camera's full projected width
+    // takes pxPerScreenWidth of movement: an edge is always close, which is
+    // what lets a misclassified flick reach it and spill into look on its own.
+    const span = Math.max(this.bounds.max.x - this.bounds.min.x, 1e-4);
+    const perPixel = span / PHOTOGRAPHY.reticle.pxPerScreenWidth;
+    const wantedX = this.reticle.x + dx * perPixel;
+    const wantedY = this.reticle.y - dy * perPixel;
+
+    const clampedX = clamp(wantedX, this.bounds.min.x, this.bounds.max.x);
+    const clampedY = clamp(wantedY, this.bounds.min.y, this.bounds.max.y);
+
+    // Not a blend: the clamp simply has nowhere to put this, so it becomes look.
+    this.lookSpill.x = (wantedX - clampedX) / perPixel;
+    this.lookSpill.y = -(wantedY - clampedY) / perPixel;
+
+    this.reticle.set(clampedX, clampedY);
+  }
+
+  press(): void {
+    if (!this.photography.pose.isRaised) return;
+    this.pressedTarget = this.hovered;
+    if (this.hovered === 'shutterButton') this.actions.shutter('down');
+  }
+
+  release(): void {
+    const target = this.pressedTarget;
+    this.pressedTarget = null;
+    if (!this.photography.pose.isRaised) return;
+    // Down and up must agree, so a slip during the press cancels.
+    if (target === null || target !== this.hovered) return;
+
+    if (target === 'shutterButton') {
+      this.actions.shutter('up');
+      return;
+    }
+    if (target === 'body') return;
+
+    if (target.id === 'focusPoint') {
+      this.actions.focus({ x: this.screenUv.x, y: this.screenUv.y });
+      return;
+    }
+    if (target.settingId === 'mode') {
+      this.actions.selectSetting('mode');
+      this.actions.changeSetting(1);
+      return;
+    }
+    if (target.settingId !== null) this.actions.selectSetting(target.settingId);
+  }
+
+  wheel(notches: number): void {
+    if (!this.photography.pose.isRaised) return;
+    const target = this.hovered;
+    const selected = this.photography.state.selected;
+    const overSelected =
+      target !== null && target !== 'body' && target !== 'shutterButton' &&
+      target.settingId !== null && target.settingId === selected;
+
+    if (overSelected) this.actions.changeSetting(notches);
+    else this.actions.zoom(notches * PHOTOGRAPHY.lens.wheelStep);
+  }
+
+  update(dt: number): void {
+    const model = this.floating.object;
+    if (!this.camera || !model || dt <= 0) return;
+
+    if (!this.photography.pose.isRaised) {
+      this.fade(dt, 0);
+      this.hovered = null;
+      this.screen.setHover(null, false);
+      return;
+    }
+
+    this.updateBounds(model);
+    this.resolveHover();
+    this.updateButton(dt);
+    this.applyMagnetism(dt);
+
+    this.idleTime += dt;
+    const wanted = this.idleTime > PHOTOGRAPHY.reticle.fadeDelay ? 0 : 1;
+    if (wanted === 0) this.recentre(dt);
+    this.fade(dt, wanted);
+
+    this.screen.setReticle(this.screenUv.x, this.screenUv.y, this.alpha);
+    this.screen.setHover(this.hoverTargetRect(), this.pressedTarget !== null);
+  }
+
+  private fade(dt: number, wanted: number): void {
+    this.alpha = damp(this.alpha, wanted, PHOTOGRAPHY.reticle.fadeLambda, dt);
+  }
+
+  /** Every gesture starts from the same known place. */
+  private recentre(dt: number): void {
+    this.bounds.getCenter(this.recentreTarget);
+    this.reticle.lerp(this.recentreTarget, 1 - Math.exp(-PHOTOGRAPHY.reticle.fadeLambda * dt));
+  }
+
+  private updateBounds(model: THREE.Object3D): void {
+    if (!this.camera) return;
+    this.box.setFromObject(model);
+    this.bounds.makeEmpty();
+    for (let i = 0; i < 8; i++) {
+      this.corner.set(
+        i & 1 ? this.box.max.x : this.box.min.x,
+        i & 2 ? this.box.max.y : this.box.min.y,
+        i & 4 ? this.box.max.z : this.box.min.z,
+      );
+      this.corner.project(this.camera);
+      this.cornerNdc.set(this.corner.x, this.corner.y);
+      this.bounds.expandByPoint(this.cornerNdc);
+    }
+    this.reticle.set(
+      clamp(this.reticle.x, this.bounds.min.x, this.bounds.max.x),
+      clamp(this.reticle.y, this.bounds.min.y, this.bounds.max.y),
+    );
+  }
+
+  private resolveHover(): void {
+    const model = this.floating.object;
+    if (!this.camera || !model) return;
+
+    this.raycaster.setFromCamera(this.reticle, this.camera);
+    const hits = this.raycaster.intersectObject(model, true);
+    const hit = hits[0];
+    if (!hit) {
+      this.hovered = null;
+      return;
+    }
+
+    if (hit.object.name === 'ShutterHitVolume' || hit.object.name === 'ShutterButton') {
+      this.hovered = 'shutterButton';
+      return;
+    }
+    if (hit.object === this.screen.surface && hit.uv) {
+      this.screenUv.copy(hit.uv);
+      this.hovered = zoneAtUv(hit.uv.x, hit.uv.y) ?? 'body';
+      return;
+    }
+    this.hovered = 'body';
+  }
+
+  /**
+   * Assists the landing only. Scaled to zero above the cutoff so it can never
+   * drag the reticle off the path the player intended.
+   */
+  private applyMagnetism(dt: number): void {
+    const target = this.hovered;
+    if (target === null || target === 'body' || target === 'shutterButton') return;
+
+    const strength =
+      PHOTOGRAPHY.reticle.magnetism *
+      (1 - saturate(this.pointerSpeed / PHOTOGRAPHY.reticle.magnetSpeedCutoff));
+    if (strength <= 0) return;
+
+    const centre = zoneCentreUv(target);
+    this.screenUv.x += (centre.u - this.screenUv.x) * strength * Math.min(dt * 60, 1);
+    this.screenUv.y += (centre.v - this.screenUv.y) * strength * Math.min(dt * 60, 1);
+  }
+
+  private hoverTargetRect(): THREE.Vector4 | null {
+    const target = this.hovered;
+    if (target === null || target === 'body' || target === 'shutterButton') return null;
+    if (target.id === 'focusPoint') return null; // The image area never washes.
+    return this.hoverRect.set(target.x0, 1 - target.y1, target.x1, 1 - target.y0);
+  }
+
+  /**
+   * The cap physically depresses. Sprung rather than snapped, so the release
+   * has the same small bounce a real shutter button has.
+   */
+  private updateButton(dt: number): void {
+    const button = this.floating.shutterButton;
+    if (!button) return;
+    this.buttonRestY ??= button.position.y;
+    const target = this.pressedTarget === 'shutterButton' ? 1 : 0;
+    this.pressDepth = spring(this.pressDepth, target, this.press$, 30, 0.5, dt);
+    button.position.y = this.buttonRestY - this.pressDepth * BUTTON_TRAVEL;
+  }
+}

@@ -49,6 +49,11 @@ export class FloatingCamera implements System {
     return this.model;
   }
 
+  /** The physically-depressing cap, distinct from its enlarged hit volume. */
+  get shutterButton(): THREE.Object3D | null {
+    return this.model?.getObjectByName('ShutterButton') ?? null;
+  }
+
   async init(ctx: EngineContext): Promise<void> {
     this.viewCamera = ctx.camera;
     this.model = await loadCameraModel();
