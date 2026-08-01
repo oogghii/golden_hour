@@ -246,11 +246,38 @@ The honest signal on a frame-capped device is the **achieved present rate**, whi
 because under a cap it measures the rAF interval rather than the work.
 
 ```
-target   = isFinite(quality.frameCap) ? quality.frameCap
-                                      : mean present rate over the 2 s before raising
-degrade  achieved < target × 0.92  sustained 1.5 s   → next rung down
-recover  achieved > target × 0.99  sustained 8.0 s   → one rung up
+target = isFinite(quality.frameCap) ? quality.frameCap
+                                    : mean present rate over the 2 s before raising
 ```
+
+Present counts are accumulated into **0.5 s buckets**. Every decision reads the
+**median** of a window of buckets, never the mean — one stalled bucket cannot move a
+median, which is the whole point.
+
+```
+degrade   median of the last  4 buckets (2.0 s)  <  target × 0.92   → one rung down
+recover   median of the last 16 buckets (8.0 s)  >  target × 1.00   → one rung up
+```
+
+Four guards against a transient triggering a change:
+
+1. **Warm-up.** No decision for `warmupSeconds` (1.0) after the camera is raised. The
+   first viewfinder frames pay for target allocation, shader compilation and the first
+   chrome upload; that spike is not representative of anything.
+2. **Minimum observation window.** The degrade window is a full 2.0 s of buckets. A
+   partially-filled window never evaluates — on a cold start there is simply no
+   decision until 4 buckets exist.
+3. **Median, not mean.** A single long frame — a grass tile rebuild, a GC pause, a
+   texture upload — cannot pull the median below the threshold.
+4. **Cooldown.** After any rung change, `cooldownSeconds` (3.0) during which no further
+   change is possible, and the buckets are cleared so the new rung is judged only on its
+   own evidence.
+
+The hysteresis gap is explicit: degrade below `0.92 × target`, recover only above
+`1.00 × target`. Nothing can sit in a band where both conditions are true.
+
+Buckets are discarded across a `visibilitychange` and across any `raise` transition —
+returning from a hidden tab produces a gap that is not a performance signal.
 
 The watchdog only samples while `raise > 0`. Recovery is capped at 2 per session and the
 floor **latches**: a rung that has failed twice is never re-entered. This prevents the
@@ -310,33 +337,50 @@ This leaves a 0.0065 margin top and bottom inside the aperture.
 ### The reticle
 
 Pointer lock is **retained** the whole time, so there is never an OS cursor and we keep
-receiving `movementX/Y`. The single mouse stream is split by **velocity**:
+receiving `movementX/Y`. The single mouse stream is routed by a **latched gesture
+classifier**, never by a continuous blend. The same physical gesture always means the
+same thing for its whole duration.
 
 ```
-engagement = 1 − smoothstep(slowPxPerSec, fastPxPerSec, |mouseVelocity|)
-             slow = 250 px/s, fast = 800 px/s
-
-reticle += delta ×      engagement       clamped to the camera's projected bounds
-look    += delta × (1 − engagement)  +  the component the clamp rejected
+IDLE ──movement starts──► classify once ──► RETICLE ──┐
+                                        └─► LOOK ─────┤
+                                                      │
+        ◄──────────── movement settles ───────────────┘
 ```
 
-- Slow, deliberate movement operates the camera and barely moves the world.
-- A quick flick reframes the world and fades the reticle out.
-- Overflow at the clamp always spills into look, so the player can never be trapped.
-- No modifier key, no mode switch.
+**Classification happens once, on the frame a gesture begins**, from the peak speed of
+that frame and the one before it (a two-sample peak, so an acceleration ramp cannot be
+mistaken for a slow movement — and no input is buffered, so there is no latency):
 
-The reticle is genuinely **temporary**: it fades in on movement and fades out after
-`1.1 s` of stillness (λ = 7), and its opacity is additionally multiplied by
-`engagement`, so it disappears the moment the player starts reframing.
+```
+peak ≥ flickPxPerSec (900)  →  LOOK
+otherwise                   →  RETICLE
+```
+
+**The classification then holds until the gesture ends**, which is speed below
+`settlePxPerSec` (60) for `settleSeconds` (0.12). Nothing re-evaluates mid-gesture.
+
+| state | mouse delta goes to | reticle |
+|---|---|---|
+| `RETICLE` | the reticle, clamped to the camera's projected bounds. **The component the clamp rejects spills into look** | visible, hovering |
+| `LOOK` | look, entirely | fades out, hover cleared |
+| `IDLE` | nothing is moving | fades out after `fadeDelay` 1.1 s, λ = 7 |
+
+Edge spill is not a blend — it is the clamp having nowhere to put the movement, and it
+is what makes the system safe: **a gesture misclassified as `RETICLE` self-corrects**.
+The reticle crosses its domain in ~260 px of travel, so a fast gesture that started with
+a soft ramp reaches the boundary within a frame or two and becomes a pan anyway. The
+player is never trapped and never has to learn the flick threshold.
+
+On fade-out the reticle **returns to the centre of the rear screen**, so every gesture
+starts from the same known place. Nothing is lost by this, because selection is state on
+`PhotoState` and survives independently of where the reticle happens to be — the amber
+rail stays where you put it.
 
 **Its domain is the camera's projected bounding rect**, recomputed each frame from the
 model's bounding box — not the LCD alone. That is what lets it travel up onto the
 shutter button while still being "constrained to the camera", never a full-screen game
-cursor. Full LCD width ≈ 260 px of mouse travel, so an edge is always close.
-
-*Fallback if the velocity split does not survive play-testing:* drop `engagement` to a
-constant 1 and rely purely on edge-overflow for look. The code path is the same; one
-constant changes.
+cursor.
 
 ### Hit resolution
 
@@ -353,9 +397,28 @@ Three mechanisms, in order of importance:
 
 1. **Exhaustive partition.** Each bar is tiled edge to edge with no gaps. Every pixel of
    the screen belongs to some zone. There is nothing to miss.
-2. **Magnetism.** The reticle is pulled toward the hovered zone's centre at 32% — enough
-   to feel like it settles into a control, not enough to fight the player.
+2. **Magnetism, applied only as the reticle settles.** The pull toward the hovered
+   zone's centre is scaled by `1 − saturate(speed / magnetSpeedCutoff)`, so it is zero
+   while the player is actively moving and only acts as the gesture comes to rest. It
+   assists the landing; it can never drag the reticle off an intended path. Default
+   strength **0.12**, configurable, range 0–1.
 3. **Padding.** Only the physical button needs it: `ShutterHitVolume` is ~2.4× the cap.
+
+### Hover, press and activation are three separate states
+
+**Passing over a control does nothing.** Ever. The reticle crossing a zone changes
+appearance only.
+
+```
+hover       reticle is over the zone                    → visual only, no action
+press       left button goes down while hovering it     → visual only, no action
+activate    left button comes up over the SAME zone     → selectSetting(id)
+cancel      left button comes up over a different zone  → no action at all
+```
+
+Down-and-up must agree on the target, which is standard button semantics and means a
+slip during the press is a cancel rather than a misfire. `shutter` follows the same
+rule: `down` arms and depresses the cap, `up` over the same volume fires.
 
 ### Feedback states
 
@@ -426,14 +489,14 @@ interface CameraActions {
 | input | action |
 |---|---|
 | right-click | `enter` / `exitPhotographyMode` |
-| mouse move | reticle + look, split by engagement (§7) |
-| left-click on an adjustable zone | `selectSetting(id)` only. Changing the value is a separate gesture — wheel or drag |
-| left-click on `mode` | `selectSetting('mode')` + `changeSetting(1)`, since it is purely cyclic |
-| left-click on `focusPoint` | `focus(uv)` |
-| left-click on the shutter button | `shutter('down' \| 'up')` |
-| wheel, hovering `focusPoint` / `body` / nothing adjustable | `zoom` |
-| wheel, hovering an adjustable zone | `changeSetting` on that zone |
-| left-drag horizontally on an adjustable zone | `changeSetting`, continuous — the dial |
+| mouse move | reticle **or** look, per the latched classifier (§7) |
+| left press + release on an adjustable zone | `selectSetting(id)` only. Changing the value is always a separate gesture |
+| left press + release on `mode` | `selectSetting('mode')` + `changeSetting(1)`, since it is purely cyclic |
+| left press + release on `focusPoint` | `focus(uv)` |
+| left press + release on the shutter button | `shutter('down')` on press, `shutter('up')` on release over the same volume |
+| wheel, reticle over the **selected** zone | `changeSetting` on it |
+| wheel, anywhere else | `zoom` — and since the reticle recentres on fade, this is the resting behaviour |
+| left-drag horizontally starting on the **selected** zone | `changeSetting`, continuous — the dial |
 | pointer lock lost | `exitPhotographyMode` |
 
 **Keyboard exists only as an optional accessibility and development alternative**, is
@@ -491,9 +554,13 @@ export const PHOTOGRAPHY = {
   lookScale: 0.8,
   lens: { minMm: 24, maxMm: 120, sensorHeightMm: 24, wheelStep: 0.055, lambda: 9 },
   reticle: {
-    slowPxPerSec: 250, fastPxPerSec: 800, pxPerScreenWidth: 260,
+    // Gesture classification. Latched, never blended.
+    flickPxPerSec: 900, settlePxPerSec: 60, settleSeconds: 0.12,
+    pxPerScreenWidth: 260,
+    // Magnetism assists the landing only; it is scaled to zero while moving fast.
+    magnetism: 0.12, magnetSpeedCutoff: 220,
     // radius is a fraction of the screen's width, as are all uv-space values here
-    magnetism: 0.32, fadeDelay: 1.1, fadeLambda: 7, radius: 0.016,
+    fadeDelay: 1.1, fadeLambda: 7, radius: 0.016,
   },
   screenUI: {
     primary: 0xf5efe6, secondary: 0xc9bfb1,
@@ -512,8 +579,12 @@ export const VIEWFINDER = {
   startRung: { high: 0, medium: 1, low: 2 },
   frozenDim: 0.55,
   watchdog: {
-    degradeBelow: 0.92, degradeSeconds: 1.5,
-    recoverAbove: 0.99, recoverSeconds: 8, maxRecoveries: 2,
+    bucketSeconds: 0.5,
+    warmupSeconds: 1.0,
+    cooldownSeconds: 3.0,
+    degradeBelow: 0.92, degradeBuckets: 4,
+    recoverAbove: 1.0, recoverBuckets: 16,
+    maxRecoveries: 2,
   },
 } as const;
 ```
@@ -553,8 +624,17 @@ or the viewfinder lags the body by a frame.
 - `DevStats` deltas raised vs lowered on desktop `high`, against the 80 calls / 1382k
   triangle baseline
 - `?quality=medium&fps=30` holds 30 fps with the camera raised
-- `?vf=3` and `?vf=0` force the ladder ends; the watchdog is exercised by forcing a low
-  rung on a heavy scene and confirming it steps down and latches
+- `?vf=3` and `?vf=0` force the ladder ends; the watchdog is exercised by forcing a high
+  rung on a capped tier and confirming it steps down, cools down and latches
+- **A transient does not degrade.** Injecting a single 300 ms stall while raised must
+  leave the rung unchanged — this is the specific failure the median and the warm-up
+  exist to prevent
+- **Gesture classification is stable.** A gesture classified `RETICLE` stays `RETICLE`
+  for its whole duration however fast it later becomes, and vice versa; verified with a
+  DEV readout of the current state and the classifying peak
+- **Passing over a control never activates it.** Sweep the reticle across every zone
+  with no button pressed and confirm `PhotoState` is unchanged; press on one zone and
+  release over another and confirm the same
 - Enter / exit / enter repeatedly with no leaked render targets — `renderer.info.memory`
   stable across 20 cycles
 
