@@ -17,6 +17,8 @@ world/             HeightField, Terrain, Sky, Water, Backdrop, Pollen, Scatter
 grass/             wind, BladeGeometry, grassTexture, GrassMaterials, GrassField
 props/             factories + one merged/instanced PropLayer
 camera/            FloatingCamera + swappable CameraScreen implementation
+photography/       PhotographyMode, CameraInteraction, and the exposure/gesture/zone
+                    models Photography Mode reads
 player/            Player, FirstPersonCamera, input/
 lighting/          Lighting
 render/            PostFX + shaders/
@@ -47,9 +49,14 @@ hidden behind a growing god object.
 ```
 Sky, Backdrop, Terrain, Water     world geometry
 DesktopInput                      gathers raw input
+PhotographyMode                   gates that input in place, before look consumes it —
+                                   how movement and look scale down while raised without
+                                   touching Player.ts or FirstPersonCamera.ts
 FirstPersonCamera                 consumes look delta, writes camera orientation
 Player                            moves along that heading, writes camera position
 FloatingCamera                    follows the new view pose with world-space lag
+Viewfinder                        renders through the floating camera's pose, so it must
+                                   come after FloatingCamera has resolved this frame's lag
 GrassField                        follows the player's new position
 PropLayer                         static composition; shares height + wind
 Lighting                          reframes its shadow box around the camera
@@ -125,7 +132,7 @@ is **not** a frame count — use `Engine.presentedFrames`.
 | Feature | Where |
 |---|---|
 | Blockbench models | A loader system; add to `props/`. Keep flat shading and the low-poly silhouette |
-| Photography | New system reading `FirstPersonCamera` + `Player`; the floating camera's screen is already planned as a separate named mesh with its own material |
+| Photography | Implemented — see `docs/superpowers/specs/2026-08-01-photography-mode-design.md` for the full design. Depth of field, the histogram, photo storage, live focus/metering zones and viewfinder bloom are deferred by that spec (§13); touch bindings are also absent — `CameraActions` and the raycast path exist for them, but nothing calls them from `TouchInput` |
 | Floating camera screen going live | Write `LiveCameraScreen` against the `CameraScreen` interface described in `DECISIONS.md`; one line changes in `main.ts` |
 | Animals | Systems with their own instanced meshes; sample `HeightField.heightAt` to sit on the ground |
 | Prop scatter | `src/world/Scatter.ts` | Extracted deterministic rejection scatter logic |

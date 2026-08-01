@@ -43,7 +43,7 @@ const look = new FirstPersonCamera(input);
 const player = new Player(heightField, look, input);
 const desktopInput = new DesktopInput(input, canvas);
 const touchInput = new TouchInput(input, canvas);
-const photography = new PhotographyMode(input);
+const photography = new PhotographyMode(input, heightField);
 
 engine.add(new Sky());
 engine.add(new Backdrop());

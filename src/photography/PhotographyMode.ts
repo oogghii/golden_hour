@@ -1,7 +1,9 @@
+import type * as THREE from 'three';
 import { PHOTOGRAPHY } from '../core/Settings';
 import type { System } from '../core/System';
 import { CameraPose } from '../camera/CameraPose';
 import type { InputState } from '../player/input/InputState';
+import type { HeightField } from '../world/HeightField';
 import { clamp, damp, lerp } from '../util/math';
 import {
   APERTURES,
@@ -31,7 +33,10 @@ export class PhotographyMode implements System, CameraActions {
   /** Set by CameraInteraction in phase B. Null means nothing is hovered. */
   onCapture: (() => void) | null = null;
 
-  constructor(private readonly input: InputState) {}
+  constructor(
+    private readonly input: InputState,
+    private readonly height: HeightField,
+  ) {}
 
   update(dt: number): void {
     if (dt <= 0) return;
@@ -83,8 +88,68 @@ export class PhotographyMode implements System, CameraActions {
   focus(uv?: { x: number; y: number }): void {
     this.state.focusUv.x = uv?.x ?? 0.5;
     this.state.focusUv.y = uv?.y ?? 0.5;
-    // The distance itself is filled in by the focus ray in phase B.
+    // The distance itself arrives separately, via setFocusResult: it takes a
+    // world-space ray, and PhotographyMode cannot compute that itself without
+    // depending on Viewfinder (which already depends on PhotographyMode for
+    // its pose). CameraInteraction casts the ray and calls back in.
     this.state.focusConfirmed = false;
+    touch(this.state);
+  }
+
+  /**
+   * A coarse march against the height field, refined by bisection. Cheap, and
+   * it gives a real distance for the readout, the focus confirmation and —
+   * when depth of field lands — the blur.
+   *
+   * Public because CameraInteraction calls it directly: it holds the floating
+   * camera's live pose and therefore computes the ray itself, but the height
+   * field the ray is marched against stays owned here.
+   *
+   * Runs once per focus event, not per frame, so the coarse-then-bisect
+   * approach does not need to be fast — but the loop itself must not
+   * allocate, hence scalars rather than Vector3s inside it.
+   */
+  measureFocusDistance(origin: THREE.Vector3, direction: THREE.Vector3): number {
+    const { stepMetres, maxMetres, refineIterations } = PHOTOGRAPHY.focus;
+    let previous = 0;
+    // `t` is annotated: PHOTOGRAPHY is `as const`, so stepMetres' type is the
+    // literal 1.5, not number — without this, `t` infers that literal type
+    // and every later assignment of a computed number to it (or to `hi`,
+    // copied from `t`) fails to typecheck.
+    for (let t: number = stepMetres; t < maxMetres; t += stepMetres) {
+      const x = origin.x + direction.x * t;
+      const y = origin.y + direction.y * t;
+      const z = origin.z + direction.z * t;
+      if (y <= this.height.heightAt(x, z)) {
+        // Bisect between the last clear sample and this one.
+        let lo = previous;
+        let hi = t;
+        for (let i = 0; i < refineIterations; i++) {
+          const mid = (lo + hi) / 2;
+          const my = origin.y + direction.y * mid;
+          if (my <= this.height.heightAt(origin.x + direction.x * mid, origin.z + direction.z * mid)) {
+            hi = mid;
+          } else {
+            lo = mid;
+          }
+        }
+        return (lo + hi) / 2;
+      }
+      previous = t;
+    }
+    // A ray that never meets the ground — a camera pointed at the sky. The
+    // display reads this as the infinity mark, which is correct, not an error.
+    return Infinity;
+  }
+
+  /**
+   * Written by CameraInteraction once it has marched the focus ray. Split
+   * from `focus()` for the same reason `measureFocusDistance` is public: the
+   * ray itself is CameraInteraction's to compute.
+   */
+  setFocusResult(distanceMetres: number): void {
+    this.state.focusDistance = distanceMetres;
+    this.state.focusConfirmed = true;
     touch(this.state);
   }
 

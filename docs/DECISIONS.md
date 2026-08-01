@@ -150,6 +150,65 @@ only camera matrices, moving geometry never smears — the wind stays crisp. Do 
 - **Ecology is multiplicative, not deterministic.** We deliberately use three overlapping procedural noise fields instead of one biome map. This ensures flowers don't spawn in obvious circular blobs, and tall grass doesn't *always* mean green grass. The multiplicative intersection of fields (`Richness * (1 - Overgrowth) * Floral`) provides genuinely organic variance.
 - **Distant Tapestry.** The `Terrain.ts` vertex shader fakes the continuation of the grass beyond 120m by painting the same procedural floral and richness noise directly onto the ground plane.
 
+## Phase 11: Photography Mode
+
+### The model merge splits again, and the Phase 9 shadow-pass rationale no longer applies
+
+Phase 9 flattened all 15 of `camera.gltf`'s mesh nodes into one `VintageCameraBody`
+because preserving them individually doubled their draw cost in the shadow pass (see
+"Deviations from the original plan" above). Photography Mode needs the shutter cap to
+physically depress on its own, which needs its own mesh, so `mergeModel()` now produces
+two — `VintageCameraBody` and `ShutterButton` — plus an invisible `ShutterHitVolume` for
+picking. The extra cost is one draw call, not fifteen. More to the point,
+`prepareMaterials()` sets `castShadow = false` on every mesh of the camera
+unconditionally: it floats near eye level, so a shadow pass would cost as much as
+drawing it again and would produce an implausible moving shadow on the field. The
+shadow-pass cost the Phase 9 flatten was solving for does not exist for this model at
+all, so splitting the button back out is free.
+
+### The viewfinder is a real second render pass, not a crop of the main frame
+
+Four separate reasons converge on the same answer:
+
+1. The lens sits at a different pose than the player's eye — offset, lagging and
+   banking as `CameraPose` settles it. A crop of the main frame shows what the player's
+   eye is pointed at, not what the lens is; there is no crop that recovers a pose the
+   main camera never rendered.
+2. Focal length is a real optical change of fov (`2·atan(12/f)`), decoupled from the
+   player's own. A crop of a fixed-fov frame cannot zoom past what that frame already
+   captured, and widening the main camera's fov to serve the crop would leak into the
+   player's own view.
+3. Exposure compensation grades **only** the viewfinder image, never the player's —
+   possible only because it has its own render target to grade in isolation.
+4. The camera model must not appear inside its own screen. `CAMERA_LAYER` gives this
+   for free: the main camera renders layers 0+1, the viewfinder camera renders layer 0
+   only. A crop of the main frame necessarily includes the camera model and would need
+   extra masking to hide it.
+
+### Gesture classification is latched, not blended
+
+A continuous blend — routing some fraction of the mouse delta to the reticle and the
+rest to look, weighted by speed — would mean the same physical gesture changes meaning
+mid-stroke as incidental speed varies, which reads as broken tracking, not assistance.
+Classification instead happens once, from the peak speed of a gesture's first two
+samples (a two-sample window, so an accelerating flick cannot be mistaken for a slow
+drag), and holds for the gesture's whole duration. Safety comes from the reticle's
+clamp, not from reclassifying: the reticle crosses its whole domain in ~260 px of
+travel, so a gesture misclassified as `RETICLE` reaches the boundary within a frame or
+two, and the clamp's rejected component spills into look on its own. A slip
+self-corrects without the classifier ever changing its mind.
+
+### The watchdog reads medians, never a mean
+
+Wall-clock `dt` cannot reveal the viewfinder's true cost under a frame cap — it measures
+the rAF interval, not the work — so the watchdog instead reads `Engine.presentedFrames`,
+accumulated into 0.5 s buckets. Every degrade/recover decision reads the median of a
+window of those buckets (4 for degrade, 16 for recover), never the mean. A single
+stalled bucket — a grass tile rebuild, a GC pause, a texture upload — can drag a mean
+past a threshold; it cannot move a median. That is the whole point: the ladder must
+react to the machine's sustained rate, not to one bad frame.
+
 ## Still unresolved
 
-See `STATUS.md`. Real iPhone 15 Safari validation is the top open item.
+See `STATUS.md`. Real iPhone 15 Safari validation is the top open item, alongside
+Photography Mode's own browser verification pass and its touch bindings.

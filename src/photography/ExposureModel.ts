@@ -129,3 +129,14 @@ export function formatExposure(state: PhotoState): string {
 export function formatFocal(state: PhotoState): string {
   return `${Math.round(state.focalMm)}`;
 }
+
+/**
+ * A photographer reads distance, not raw numbers: one decimal below 10 m,
+ * where precision still reads as meaningful, none above it, and the infinity
+ * mark for a ray that never met the ground.
+ */
+export function formatFocusDistance(state: PhotoState): string {
+  const value = state.focusDistance;
+  if (!Number.isFinite(value)) return '∞';
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} m`;
+}

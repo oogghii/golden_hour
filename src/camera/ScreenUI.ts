@@ -5,6 +5,7 @@ import {
   formatAperture,
   formatExposure,
   formatFocal,
+  formatFocusDistance,
   formatIso,
   formatShutter,
 } from '../photography/ExposureModel';
@@ -64,6 +65,23 @@ export class ScreenUI {
     this.drawScrims();
     this.drawTopBar(state);
     this.drawBottomBar(state);
+    this.drawFocusDistance(state);
+  }
+
+  /**
+   * The centre readout, sitting just above the settings bar. The corner-ticked
+   * focus frame itself is drawn in the shader, next to the live feed; this is
+   * its typographic companion, coloured the same way — secondary while
+   * searching, `confirm` once the ray has landed.
+   */
+  private drawFocusDistance(state: PhotoState): void {
+    const ctx = this.ctx;
+    const { secondary, confirm } = PHOTOGRAPHY.screenUI;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = `20px ${FONT}`;
+    ctx.fillStyle = hex(state.focusConfirmed ? confirm : secondary);
+    ctx.fillText(formatFocusDistance(state), WIDTH / 2, HEIGHT * 0.833 - 14);
   }
 
   /** Real cameras scrim behind their overlays so type survives a bright sky. */

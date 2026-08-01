@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PHOTOGRAPHY } from '../core/Settings';
+import { FLOATING_CAMERA, PHOTOGRAPHY } from '../core/Settings';
 import type { EngineContext, System } from '../core/System';
 import { CAMERA_LAYER, type FloatingCamera } from '../camera/FloatingCamera';
 import type { LiveCameraScreen } from '../camera/LiveCameraScreen';
@@ -13,6 +13,24 @@ export type HoverTarget = Zone | 'shutterButton' | 'body' | null;
 
 /** Model units. The cap spans y 0.575 -> 0.700, so this is a plausible throw. */
 const BUTTON_TRAVEL = 0.018;
+
+/**
+ * Derived from the screen, never written down twice — matches Viewfinder's own
+ * `SCREEN_ASPECT`. Needed here because the focus ray reconstructs the
+ * viewfinder's frustum independently: `PhotographyMode` cannot depend on
+ * `Viewfinder` (that would cycle back through `PhotographyMode`), so this
+ * module, which already holds both `floating` and `photography`, does it
+ * itself rather than importing Viewfinder's internals.
+ */
+const SCREEN_ASPECT = FLOATING_CAMERA.screen.width / FLOATING_CAMERA.screen.height;
+
+/**
+ * Same 36x24mm-frame formula as Viewfinder's `fovForFocal`, computed
+ * independently for the reason `SCREEN_ASPECT` above is.
+ */
+function verticalFovRadians(focalMm: number): number {
+  return 2 * Math.atan(PHOTOGRAPHY.lens.sensorHeightMm / 2 / focalMm);
+}
 
 /**
  * The reticle, and what it is pointing at.
@@ -45,6 +63,11 @@ export class CameraInteraction implements System {
   private readonly hits: THREE.Intersection[] = [];
   /** Reused so applyMagnetism does not let zoneCentreUv allocate an object every frame. */
   private readonly centre = { u: 0, v: 0 };
+  /** Reused by castFocusRay and updateFocusRect; a focus event, not a per-frame path, but the class-wide convention is to preallocate regardless. */
+  private readonly focusOrigin = new THREE.Vector3();
+  private readonly focusQuaternion = new THREE.Quaternion();
+  private readonly focusDirection = new THREE.Vector3();
+  private readonly focusRect = new THREE.Vector4();
 
   private camera: THREE.PerspectiveCamera | null = null;
   private pressedTarget: HoverTarget = null;
@@ -134,6 +157,7 @@ export class CameraInteraction implements System {
 
     if (target.id === 'focusPoint') {
       this.actions.focus({ x: this.screenUv.x, y: this.screenUv.y });
+      this.castFocusRay(this.screenUv.x, this.screenUv.y);
       return;
     }
     if (target.settingId === 'mode') {
@@ -192,6 +216,8 @@ export class CameraInteraction implements System {
 
     this.screen.setReticle(this.screenUv.x, this.screenUv.y, this.alpha);
     this.screen.setHover(this.hoverTargetRect(), this.pressedTarget !== null);
+    this.updateFocusRect();
+    this.screen.setFocus(this.focusRect, this.photography.state.focusConfirmed);
   }
 
   private fade(dt: number, wanted: number): void {
@@ -275,6 +301,60 @@ export class CameraInteraction implements System {
     if (target === null || target === 'body' || target === 'shutterButton') return null;
     if (target.id === 'focusPoint') return null; // The image area never washes.
     return this.hoverRect.set(target.x0, 1 - target.y1, target.x1, 1 - target.y0);
+  }
+
+  /**
+   * Reconstructs the viewfinder's frustum from the floating model's world
+   * pose and the current focal length, so a tap on the image can be marched
+   * into a real world-space direction and, from there, a real distance.
+   *
+   * This lives here rather than in `Viewfinder` or `PhotographyMode` because
+   * of a dependency shape: `Viewfinder` already depends on `PhotographyMode`
+   * for its pose, so `PhotographyMode` cannot depend back on `Viewfinder`
+   * without a cycle. `CameraInteraction` already holds both `floating` and
+   * `photography`, so it is the natural place to bridge the two — it
+   * approximates the lens with the model's own origin and orientation (the
+   * true lens offset is a few centimetres, negligible against a 1.5 m march
+   * step) and hands the resulting ray to `PhotographyMode.measureFocusDistance`,
+   * which owns the height field the ray is marched against.
+   */
+  private castFocusRay(u: number, v: number): void {
+    const model = this.floating.object;
+    if (!model) return;
+
+    model.getWorldPosition(this.focusOrigin);
+    model.getWorldQuaternion(this.focusQuaternion);
+
+    const halfHeight = Math.tan(verticalFovRadians(this.photography.state.focalMm) / 2);
+    const halfWidth = halfHeight * SCREEN_ASPECT;
+    this.focusDirection
+      .set((u - 0.5) * 2 * halfWidth, (v - 0.5) * 2 * halfHeight, -1)
+      .applyQuaternion(this.focusQuaternion)
+      .normalize();
+
+    const distance = this.photography.measureFocusDistance(this.focusOrigin, this.focusDirection);
+    this.photography.setFocusResult(distance);
+  }
+
+  /**
+   * The focus frame's rectangle, in the same screen uv space as the hover and
+   * reticle uniforms. Roughly `PHOTOGRAPHY.focus.frameWidthFraction` of the
+   * screen width; the height follows the screen's own aspect so the frame
+   * reads as square rather than stretched, and the centre is clamped so the
+   * frame never leaves the surface even when the focus point sits near an edge.
+   */
+  private updateFocusRect(): void {
+    const halfWidth = PHOTOGRAPHY.focus.frameWidthFraction / 2;
+    const halfHeight = halfWidth * SCREEN_ASPECT;
+    const { x, y } = this.photography.state.focusUv;
+    const centreX = clamp(x, halfWidth, 1 - halfWidth);
+    const centreY = clamp(y, halfHeight, 1 - halfHeight);
+    this.focusRect.set(
+      centreX - halfWidth,
+      centreY - halfHeight,
+      centreX + halfWidth,
+      centreY + halfHeight,
+    );
   }
 
   /**

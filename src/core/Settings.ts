@@ -619,6 +619,21 @@ export const PHOTOGRAPHY = {
   },
   /** How the shutter cap depresses. Under-damped so the release has a bounce. */
   buttonSpring: { omega: 30, zeta: 0.5 },
+  /**
+   * The focus ray: a coarse march against the height field, refined by
+   * bisection. Runs once per focus event, not per frame, so `stepMetres`
+   * trades a little precision for very few `heightAt` calls.
+   */
+  focus: {
+    /** Coarse march step, metres. */
+    stepMetres: 1.5,
+    /** Past this the ray reads as infinity — a camera pointed at the sky. */
+    maxMetres: 260,
+    /** Bisection passes after the coarse hit; each halves the residual span. */
+    refineIterations: 8,
+    /** Frame width as a fraction of the screen. Height follows the screen's own aspect, so the frame reads as square rather than stretched. */
+    frameWidthFraction: 0.2,
+  },
   screenUI: {
     primary: 0xf5efe6,
     secondary: 0xc9bfb1,
