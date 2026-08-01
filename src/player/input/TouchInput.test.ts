@@ -10,6 +10,7 @@ type Listener = (event: PointerEvent) => void;
 function createHarness(initialTarget: HoverTarget, raised: boolean) {
   const listeners = new Map<string, Listener>();
   const pose = { isRaised: raised };
+  const album = { isOpen: false };
   const actions = {
     enterPhotographyMode: vi.fn(() => { pose.isRaised = true; }),
     exitPhotographyMode: vi.fn(() => { pose.isRaised = false; }),
@@ -18,6 +19,8 @@ function createHarness(initialTarget: HoverTarget, raised: boolean) {
     zoom: vi.fn(),
     selectSetting: vi.fn(),
     changeSetting: vi.fn(),
+    toggleAlbum: vi.fn(() => { album.isOpen = !album.isOpen; }),
+    flipAlbum: vi.fn(),
   };
   const interaction = {
     touchPress: vi.fn(() => initialTarget),
@@ -39,7 +42,7 @@ function createHarness(initialTarget: HoverTarget, raised: boolean) {
   const touch = new TouchInput(
     input,
     canvas,
-    { pose, ...actions } as unknown as PhotographyMode,
+    { pose, album, ...actions } as unknown as PhotographyMode,
     interaction as unknown as CameraInteraction,
   );
 
@@ -56,7 +59,7 @@ function createHarness(initialTarget: HoverTarget, raised: boolean) {
     } as unknown as PointerEvent);
   };
 
-  return { actions, dispatch, input, interaction, touch };
+  return { actions, album, dispatch, input, interaction, touch };
 }
 
 afterEach(() => {
@@ -81,6 +84,22 @@ describe('TouchInput Photography Mode bindings', () => {
 
     expect(harness.actions.exitPhotographyMode).toHaveBeenCalledOnce();
     expect(harness.interaction.touchRelease).toHaveBeenCalledOnce();
+  });
+
+  it('swipes through the album instead of adjusting a setting', () => {
+    // Browsing takes the whole surface, so a swipe that would otherwise land
+    // on an adjustable zone must move through the roll and change nothing.
+    const focal = SCREEN_ZONES.find((zone) => zone.id === 'focal')!;
+    const harness = createHarness(focal, true);
+    harness.album.isOpen = true;
+
+    harness.dispatch('pointerdown', 1, 80, 80);
+    harness.dispatch('pointermove', 1, 20, 80); // dragged left
+
+    // Left moves forward, the way a physical stack of prints does.
+    expect(harness.actions.flipAlbum).toHaveBeenCalledWith(2);
+    expect(harness.actions.changeSetting).not.toHaveBeenCalled();
+    expect(harness.actions.selectSetting).not.toHaveBeenCalled();
   });
 
   it('routes an adjustable-zone drag to setting selection and change', () => {

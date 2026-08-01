@@ -104,12 +104,26 @@ export class PhotoDesktopInput implements System {
   private readonly onWheel = (event: WheelEvent): void => {
     if (!this.photography.pose.isRaised) return;
     event.preventDefault();
-    this.interaction.wheel(-Math.sign(event.deltaY));
+    const notches = -Math.sign(event.deltaY);
+    // Inverted for the album on purpose: scrolling down should advance through
+    // the roll, the way it advances through a page.
+    if (this.photography.album.isOpen) this.photography.flipAlbum(-notches);
+    else this.interaction.wheel(notches);
   };
 
   /** Optional accessibility and development alternatives only. */
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (!this.photography.pose.isRaised) return;
+
+    // Browsing rebinds the whole keyboard: there is nothing to shoot or adjust
+    // while looking at a photograph already taken.
+    if (this.photography.album.isOpen) {
+      if (event.code === 'ArrowLeft') this.photography.flipAlbum(-1);
+      else if (event.code === 'ArrowRight') this.photography.flipAlbum(1);
+      else if (event.code === 'Escape') this.photography.toggleAlbum();
+      return;
+    }
+
     if (event.code === 'BracketLeft') this.photography.changeSetting(-1);
     else if (event.code === 'BracketRight') this.photography.changeSetting(1);
     else if (event.code === 'Space') {

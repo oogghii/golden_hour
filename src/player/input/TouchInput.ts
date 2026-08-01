@@ -138,6 +138,19 @@ export class TouchInput implements System {
       return;
     }
 
+    // Browsing turns the whole surface into one swipe, so there is no zone to
+    // resolve and no reticle to move. Dragging left moves forward through the
+    // roll, the way a physical stack of prints does.
+    if (this.photography.album.isOpen) {
+      point.dragAccumulator += dx;
+      const steps = Math.trunc(point.dragAccumulator / TOUCH.dragPxPerStep);
+      if (steps !== 0) {
+        point.dragAccumulator -= steps * TOUCH.dragPxPerStep;
+        this.actions.flipAlbum(-steps);
+      }
+      return;
+    }
+
     this.interaction.touchMove(this.toNdcX(point.x), this.toNdcY(point.y));
     if (isAdjustableTarget(point.target)) {
       if (!point.draggingSetting) {
