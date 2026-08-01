@@ -10,6 +10,19 @@ vec3 acesFilmic(vec3 x) {
 `;
 
 /**
+ * Exported for the same reason `ACES_GLSL` is: the capture develop pass encodes
+ * photographs with the exact same curve rather than a second copy that could
+ * drift from this one. sRGB encoding happens here and nowhere else.
+ */
+export const SRGB_GLSL = /* glsl */ `
+vec3 linearToSrgb(vec3 c) {
+  vec3 low = c * 12.92;
+  vec3 high = 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055;
+  return mix(low, high, step(vec3(0.0031308), c));
+}
+`;
+
+/**
  * The final grade. Order matters: bloom and the sun glow are added in HDR, the
  * tonemap brings it to display range, and everything after that is LDR grading.
  * sRGB encoding happens here and nowhere else.
@@ -50,12 +63,7 @@ uniform vec3 uBlackLift;
 varying vec2 vUv;
 
 ${ACES_GLSL}
-
-vec3 linearToSrgb(vec3 c) {
-  vec3 low = c * 12.92;
-  vec3 high = 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055;
-  return mix(low, high, step(vec3(0.0031308), c));
-}
+${SRGB_GLSL}
 
 /**
  * Screen-space velocity from camera motion alone, reconstructed by unprojecting
