@@ -56,7 +56,7 @@ engine.add(engine.quality.isTouch ? touchInput : desktopInput);
 engine.add(photography);
 engine.add(look);
 engine.add(player);
-const screen = new LiveCameraScreen();
+const screen = new LiveCameraScreen(photography);
 const floatingCamera = new FloatingCamera(player, look, screen, photography.pose);
 engine.add(floatingCamera);
 const viewfinder = engine.add(new Viewfinder(floatingCamera, photography, screen, engine));
