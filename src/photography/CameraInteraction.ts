@@ -41,6 +41,10 @@ export class CameraInteraction implements System {
   private readonly cornerNdc = new THREE.Vector2();
   /** Reused so recentre does not allocate a Vector2 every frame while fading out. */
   private readonly recentreTarget = new THREE.Vector2();
+  /** Reused so resolveHover does not let `intersectObject` allocate a fresh array every frame. */
+  private readonly hits: THREE.Intersection[] = [];
+  /** Reused so applyMagnetism does not let zoneCentreUv allocate an object every frame. */
+  private readonly centre = { u: 0, v: 0 };
 
   private camera: THREE.PerspectiveCamera | null = null;
   private pressedTarget: HoverTarget = null;
@@ -77,6 +81,9 @@ export class CameraInteraction implements System {
     this.lookSpill.x = 0;
     this.lookSpill.y = 0;
     if (!this.photography.pose.isRaised) return;
+    // Bounds are empty (min=+Inf, max=-Inf) until the first raised `update()`
+    // tick runs updateBounds; clamping against that would produce +/-Infinity.
+    if (!Number.isFinite(this.bounds.min.x) || !Number.isFinite(this.bounds.max.x)) return;
 
     const phase = this.gesture.update(dx, dy, dt);
     if (phase !== 'reticle') {
@@ -157,6 +164,11 @@ export class CameraInteraction implements System {
       this.fade(dt, 0);
       this.hovered = null;
       this.screen.setHover(null, false);
+      // The raised path is the only other writer of these uniforms; without
+      // this the reticle and a depressed cap would freeze at whatever they
+      // showed the instant the camera came down, instead of visibly settling.
+      this.screen.setReticle(this.screenUv.x, this.screenUv.y, this.alpha);
+      this.updateButton(dt);
       return;
     }
 
@@ -166,6 +178,11 @@ export class CameraInteraction implements System {
     this.applyMagnetism(dt);
 
     this.idleTime += dt;
+    // Written only while a gesture is classified 'reticle'; once the mouse
+    // truly stops, no further pointerDelta calls arrive to update this, so it
+    // must decay here or a fast drag that stops dead would suppress magnetism
+    // forever even though the cursor is now at rest.
+    this.pointerSpeed = damp(this.pointerSpeed, 0, PHOTOGRAPHY.reticle.fadeLambda, dt);
     const wanted = this.idleTime > PHOTOGRAPHY.reticle.fadeDelay ? 0 : 1;
     if (wanted === 0) this.recentre(dt);
     this.fade(dt, wanted);
@@ -209,8 +226,12 @@ export class CameraInteraction implements System {
     if (!this.camera || !model) return;
 
     this.raycaster.setFromCamera(this.reticle, this.camera);
-    const hits = this.raycaster.intersectObject(model, true);
-    const hit = hits[0];
+    // `intersectObject`'s third argument is `target = []` by default, so
+    // omitting it allocates a fresh array every frame; three does not clear a
+    // passed-in array itself, so it must be truncated here first.
+    this.hits.length = 0;
+    this.raycaster.intersectObject(model, true, this.hits);
+    const hit = this.hits[0];
     if (!hit) {
       this.hovered = null;
       return;
@@ -241,7 +262,7 @@ export class CameraInteraction implements System {
       (1 - saturate(this.pointerSpeed / PHOTOGRAPHY.reticle.magnetSpeedCutoff));
     if (strength <= 0) return;
 
-    const centre = zoneCentreUv(target);
+    const centre = zoneCentreUv(target, this.centre);
     this.screenUv.x += (centre.u - this.screenUv.x) * strength * Math.min(dt * 60, 1);
     this.screenUv.y += (centre.v - this.screenUv.y) * strength * Math.min(dt * 60, 1);
   }
@@ -262,7 +283,8 @@ export class CameraInteraction implements System {
     if (!button) return;
     this.buttonRestY ??= button.position.y;
     const target = this.pressedTarget === 'shutterButton' ? 1 : 0;
-    this.pressDepth = spring(this.pressDepth, target, this.press$, 30, 0.5, dt);
+    const { omega, zeta } = PHOTOGRAPHY.buttonSpring;
+    this.pressDepth = spring(this.pressDepth, target, this.press$, omega, zeta, dt);
     button.position.y = this.buttonRestY - this.pressDepth * BUTTON_TRAVEL;
   }
 }

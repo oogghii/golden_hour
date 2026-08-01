@@ -67,9 +67,8 @@ export function zoneAtUv(u: number, v: number): Zone | null {
   return null;
 }
 
-export function zoneCentreUv(target: Zone): { u: number; v: number } {
-  return {
-    u: (target.x0 + target.x1) / 2,
-    v: 1 - (target.y0 + target.y1) / 2,
-  };
+export function zoneCentreUv(target: Zone, out = { u: 0, v: 0 }): { u: number; v: number } {
+  out.u = (target.x0 + target.x1) / 2;
+  out.v = 1 - (target.y0 + target.y1) / 2;
+  return out;
 }

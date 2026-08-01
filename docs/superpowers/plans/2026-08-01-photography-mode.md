@@ -276,6 +276,8 @@ export const PHOTOGRAPHY = {
     /** A fraction of the screen width, as are all uv-space values here. */
     radius: 0.016,
   },
+  /** How the shutter cap depresses. Under-damped so the release has a bounce. */
+  buttonSpring: { omega: 30, zeta: 0.5 },
   screenUI: {
     primary: 0xf5efe6,
     secondary: 0xc9bfb1,
