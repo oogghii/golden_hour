@@ -222,8 +222,20 @@ Append to `src/core/Settings.ts`, after `FLOATING_CAMERA`:
  * Every value that changes how the raise *feels* lives here.
  */
 export const PHOTOGRAPHY = {
-  /** Under-damped on purpose: the overshoot is what reads as weight. */
-  raise: { omega: 11, zeta: 0.62, arcLift: 0.06, arcPull: 0.04, leadScale: 0.09 },
+  /**
+   * Under-damped on purpose: the overshoot is what reads as weight.
+   * `leadScale` drives pitch off the spring's velocity; `rollLeadScale` is how
+   * much of that same lead reaches roll. Roll gets less, so the body tips up
+   * more than it twists.
+   */
+  raise: {
+    omega: 11,
+    zeta: 0.62,
+    arcLift: 0.06,
+    arcPull: 0.04,
+    leadScale: 0.09,
+    rollLeadScale: 0.6,
+  },
   /** Nearly square to the player, but not sterile. */
   raisedRotationDeg: { x: -1.5, y: 0, z: 0 },
   /** A camera braced against your face is steadier, not looser. */
@@ -1106,7 +1118,7 @@ export class CameraPose {
     const raised = PHOTOGRAPHY.raisedRotationDeg;
     out.pitch = lerp(rest.x * DEG, raised.x * DEG, t) + lead;
     out.yaw = lerp(rest.y * DEG, raised.y * DEG, t);
-    out.roll = lerp(rest.z * DEG, raised.z * DEG, t) - lead * 0.6;
+    out.roll = lerp(rest.z * DEG, raised.z * DEG, t) - lead * PHOTOGRAPHY.raise.rollLeadScale;
 
     out.followLambda = lerp(FLOATING_CAMERA.followLambda, PHOTOGRAPHY.raisedFollowLambda, t);
     out.rotationLambda = lerp(FLOATING_CAMERA.rotationLambda, PHOTOGRAPHY.raisedRotationLambda, t);
@@ -1190,7 +1202,7 @@ git commit -m "CameraPose: the raise spring and the rest/raised blend"
 
 **Interfaces:**
 - Consumes: `CameraPose`, `PoseBlend`, `createPoseBlend` from Task 4
-- Produces: `FloatingCamera` takes a `CameraPose` as its fourth constructor argument and exposes `readonly model: THREE.Object3D | null` and `readonly screenMesh: THREE.Mesh | null` for later tasks
+- Produces: `FloatingCamera` takes a `CameraPose` as its fourth constructor argument and exposes an `object` getter returning `THREE.Object3D | null`, which Tasks 7 and 13 use to reach the model without touching privates. (The rear screen mesh is reached through `LiveCameraScreen.surface`, not through `FloatingCamera` — see Tasks 7 and 13.)
 
 - [ ] **Step 1: Add the pose to the constructor and fields**
 
