@@ -2697,7 +2697,9 @@ export class ScreenUI {
 
   private drawBottomBar(state: PhotoState): void {
     const ctx = this.ctx;
-    const { primary, secondary, accent } = PHOTOGRAPHY.screenUI;
+    // `accent` is deliberately not destructured here — the selection rail is the
+    // only thing that uses it, and it reads it directly. noUnusedLocals is on.
+    const { primary, secondary } = PHOTOGRAPHY.screenUI;
     const baseline = HEIGHT - 39;
 
     ctx.strokeStyle = hex(primary, 0.16);
@@ -2864,7 +2866,8 @@ float line(float coord, float at, float halfWidth) {
   return 1.0 - smoothstep(halfWidth * 0.5, halfWidth, abs(coord - at));
 }
 
-/** Outline of a rect, `w` thick, in uv. */
+/** Outline of a rect, w thick, in uv. Never use backticks in this comment: the
+    whole shader is a JS template literal and a backtick terminates it early. */
 float rectOutline(vec2 uv, vec4 r, float w) {
   vec2 inner = step(r.xy + w, uv) * step(uv, r.zw - w);
   vec2 outer = step(r.xy, uv) * step(uv, r.zw);
