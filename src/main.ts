@@ -1,7 +1,6 @@
 import { FloatingCamera } from './camera/FloatingCamera';
 import { LiveCameraScreen } from './camera/LiveCameraScreen';
 import { Viewfinder } from './camera/Viewfinder';
-import { PHOTOGRAPHY } from './core/Settings';
 import { Engine } from './core/Engine';
 import { GrassField } from './grass/GrassField';
 import { WindField } from './grass/wind';
@@ -12,6 +11,7 @@ import { createInputState } from './player/input/InputState';
 import { TouchInput } from './player/input/TouchInput';
 import { Player } from './player/Player';
 import { CameraInteraction } from './photography/CameraInteraction';
+import { PhotoDesktopInput } from './photography/input/PhotoDesktopInput';
 import { PhotographyMode } from './photography/PhotographyMode';
 import { PropLayer } from './props/PropLayer';
 import { PostFX } from './render/PostFX';
@@ -60,11 +60,16 @@ engine.add(player);
 const screen = new LiveCameraScreen(photography);
 const floatingCamera = new FloatingCamera(player, look, screen, photography.pose);
 engine.add(floatingCamera);
-// Temporary: not yet fed by real pointer events. Task 14's PhotoDesktopInput
-// drives pointerDelta/press/release/wheel from the DOM; until then this only
-// runs update() each frame (hover fade, magnetism, button spring settle).
 const interaction = new CameraInteraction(floatingCamera, screen, photography);
 engine.add(interaction);
+// Touch has its own long-press/drag handling in TouchInput; wiring desktop's
+// contextmenu-based toggle there too would fire photography mode from a
+// native long-press with no pointer to operate it afterward.
+const photoInput = new PhotoDesktopInput(canvas, photography, interaction, input);
+if (!engine.quality.isTouch) {
+  engine.add(photoInput);
+  desktopInput.route = (dx, dy) => photoInput.routePointer(dx, dy);
+}
 const viewfinder = engine.add(new Viewfinder(floatingCamera, photography, screen, engine));
 engine.add(new GrassField(heightField, player, wind));
 engine.add(new PropLayer(heightField, wind));
@@ -91,19 +96,5 @@ document.addEventListener('pointerlockchange', () => {
     boot.show();
   }
 });
-
-// Temporary until PhotoDesktopInput lands. Right-click is the toggle; Escape is
-// consumed by the browser as its pointer-lock release, so we mirror that here.
-canvas.addEventListener('contextmenu', (event) => {
-  event.preventDefault();
-  photography.togglePhotographyMode();
-});
-
-// Temporary until PhotoDesktopInput lands.
-canvas.addEventListener('wheel', (event) => {
-  if (!photography.pose.isRaised) return;
-  event.preventDefault();
-  photography.zoom(-Math.sign(event.deltaY) * PHOTOGRAPHY.lens.wheelStep);
-}, { passive: false });
 
 await engine.start();

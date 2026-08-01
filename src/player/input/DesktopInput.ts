@@ -12,6 +12,9 @@ const BOOST_KEYS = ['ShiftLeft', 'ShiftRight'];
 export class DesktopInput implements System {
   private readonly held = new Set<string>();
 
+  /** Set by main.ts. When present, it owns what happens to the pointer delta. */
+  route: ((dx: number, dy: number) => void) | null = null;
+
   constructor(
     private readonly input: InputState,
     private readonly canvas: HTMLCanvasElement,
@@ -53,6 +56,10 @@ export class DesktopInput implements System {
 
   private readonly onMouseMove = (event: MouseEvent): void => {
     if (!this.isLocked) return;
+    if (this.route) {
+      this.route(event.movementX, event.movementY);
+      return;
+    }
     this.input.lookDeltaYaw += event.movementX * PLAYER.lookSensitivity;
     this.input.lookDeltaPitch += event.movementY * PLAYER.lookSensitivity;
   };
