@@ -92,7 +92,7 @@ export class CameraPose {
     const raised = PHOTOGRAPHY.raisedRotationDeg;
     out.pitch = lerp(rest.x * DEG, raised.x * DEG, t) + lead;
     out.yaw = lerp(rest.y * DEG, raised.y * DEG, t);
-    out.roll = lerp(rest.z * DEG, raised.z * DEG, t) - lead * 0.6;
+    out.roll = lerp(rest.z * DEG, raised.z * DEG, t) - lead * PHOTOGRAPHY.raise.rollLeadScale;
 
     out.followLambda = lerp(FLOATING_CAMERA.followLambda, PHOTOGRAPHY.raisedFollowLambda, t);
     out.rotationLambda = lerp(FLOATING_CAMERA.rotationLambda, PHOTOGRAPHY.raisedRotationLambda, t);

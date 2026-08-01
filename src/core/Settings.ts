@@ -563,8 +563,20 @@ export const FLOATING_CAMERA = {
  * Every value that changes how the raise *feels* lives here.
  */
 export const PHOTOGRAPHY = {
-  /** Under-damped on purpose: the overshoot is what reads as weight. */
-  raise: { omega: 11, zeta: 0.62, arcLift: 0.06, arcPull: 0.04, leadScale: 0.09 },
+  /**
+   * Under-damped on purpose: the overshoot is what reads as weight.
+   * `leadScale` drives pitch off the spring's velocity; `rollLeadScale` is how
+   * much of that same lead reaches roll. Roll gets less, so the body tips up
+   * more than it twists.
+   */
+  raise: {
+    omega: 11,
+    zeta: 0.62,
+    arcLift: 0.06,
+    arcPull: 0.04,
+    leadScale: 0.09,
+    rollLeadScale: 0.6,
+  },
   /** Nearly square to the player, but not sterile. */
   raisedRotationDeg: { x: -1.5, y: 0, z: 0 },
   /** A camera braced against your face is steadier, not looser. */
