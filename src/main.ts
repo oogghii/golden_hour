@@ -11,6 +11,7 @@ import { createInputState } from './player/input/InputState';
 import { TouchInput } from './player/input/TouchInput';
 import { Player } from './player/Player';
 import { CameraInteraction } from './photography/CameraInteraction';
+import { AlbumView } from './photography/capture/AlbumView';
 import { PhotoCapture } from './photography/capture/PhotoCapture';
 import { PhotoLibrary } from './photography/capture/PhotoLibrary';
 import { PhotoDesktopInput } from './photography/input/PhotoDesktopInput';
@@ -77,8 +78,15 @@ const viewfinder = engine.add(new Viewfinder(floatingCamera, photography, screen
 // working camera, so nothing waits on this. After the viewfinder, so a capture
 // in frame N photographs the pose the viewfinder settled on in frame N.
 const library = new PhotoLibrary();
-void library.open();
-engine.add(new PhotoCapture(viewfinder, photography, screen, library));
+const photoCapture = new PhotoCapture(viewfinder, photography, screen, library);
+const albumView = new AlbumView(photography, screen, library);
+// AlbumView after PhotoCapture: both write the screen's photograph uniforms,
+// and the two states are mutually exclusive, so the later writer wins on the
+// one frame a transition straddles.
+engine.add(photoCapture);
+engine.add(albumView);
+photoCapture.onStored = () => void albumView.refresh();
+void library.open().then(() => albumView.refresh());
 engine.add(new GrassField(heightField, player, wind));
 engine.add(new PropLayer(heightField, wind));
 engine.add(new Pollen(player, wind));

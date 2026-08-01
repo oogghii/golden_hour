@@ -33,7 +33,7 @@ export class LiveCameraScreen implements CameraScreen {
   }
 
   update(_dt: number, _elapsed: number): void {
-    this.screenUI.sync(this.photography.state);
+    this.screenUI.sync(this.photography.state, this.photography.albumCaption);
     this.setGain(viewfinderGain(this.photography.state));
   }
 

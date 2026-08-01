@@ -10,6 +10,7 @@ import {
   formatShutter,
 } from '../photography/ExposureModel';
 import { SCREEN_ZONES } from '../photography/InteractionZones';
+import type { AlbumCaption } from '../photography/capture/photoRecord';
 import type { PhotoState } from '../photography/PhotoState';
 
 const WIDTH = 1024;
@@ -32,7 +33,7 @@ export class ScreenUI {
 
   private readonly canvas = document.createElement('canvas');
   private readonly ctx: CanvasRenderingContext2D;
-  private drawnRevision = -1;
+  private drawnKey = '';
 
   constructor() {
     this.canvas.width = WIDTH;
@@ -48,10 +49,16 @@ export class ScreenUI {
     this.texture.minFilter = THREE.LinearMipmapLinearFilter;
   }
 
-  sync(state: PhotoState): void {
-    if (state.revision === this.drawnRevision) return;
-    this.drawnRevision = state.revision;
-    this.draw(state);
+  /**
+   * The caption arrives alongside the state rather than inside it: a stored
+   * photograph's readings are not part of the camera's live state, and folding
+   * them in would let the album's contents leak into what the viewfinder draws.
+   */
+  sync(state: PhotoState, caption: AlbumCaption | null = null): void {
+    const key = caption ? `${state.revision}:${caption.index}/${caption.count}` : `${state.revision}`;
+    if (key === this.drawnKey) return;
+    this.drawnKey = key;
+    this.draw(state, caption);
     this.texture.needsUpdate = true;
   }
 
@@ -59,13 +66,54 @@ export class ScreenUI {
     this.texture.dispose();
   }
 
-  private draw(state: PhotoState): void {
+  private draw(state: PhotoState, caption: AlbumCaption | null): void {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    // A photograph under review is shown uninterrupted: no scrims, no type.
+    if (state.screenMode === 'review') return;
     this.drawScrims();
+    if (state.screenMode === 'album') {
+      if (caption) this.drawAlbumBars(caption);
+      return;
+    }
     this.drawTopBar(state);
     this.drawBottomBar(state);
     this.drawFocusDistance(state);
+  }
+
+  /**
+   * The caption a print gets on the back: which frame it is, when it was taken,
+   * and what it was taken at. Read from the stored record, so it says what the
+   * camera was showing at the shutter rather than what it happens to read now.
+   */
+  private drawAlbumBars(caption: AlbumCaption): void {
+    const ctx = this.ctx;
+    const { primary, secondary } = PHOTOGRAPHY.screenUI;
+
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = hex(primary);
+    ctx.font = `600 26px ${FONT}`;
+    ctx.fillText(`${caption.index} / ${caption.count}`, 32, 49);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = hex(secondary);
+    ctx.font = `19px ${FONT}`;
+    ctx.fillText(new Date(caption.takenAt).toLocaleString(), WIDTH - 32, 49);
+
+    const baseline = HEIGHT - 39;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = hex(primary);
+    ctx.font = `26px ${FONT}`;
+    ctx.fillText(
+      `${caption.focalMm}mm    ${caption.aperture}    ${caption.shutterSpeed}    ${caption.iso}`,
+      32,
+      baseline,
+    );
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = hex(secondary);
+    ctx.fillText(caption.focusDistance, WIDTH - 32, baseline);
   }
 
   /**
@@ -117,10 +165,11 @@ export class ScreenUI {
 
     this.drawBattery(state.battery);
 
+    // A camera reports card trouble where it reports frames remaining.
     ctx.textAlign = 'right';
     ctx.fillStyle = hex(primary);
     ctx.font = `22px ${FONT}`;
-    ctx.fillText(String(state.remainingShots), WIDTH - 32, 49);
+    ctx.fillText(state.cardStatus ?? String(state.remainingShots), WIDTH - 32, 49);
   }
 
   private drawBattery(level: number): void {
