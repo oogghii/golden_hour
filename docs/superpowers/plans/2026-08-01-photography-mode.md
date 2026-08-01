@@ -1731,6 +1731,25 @@ import { CAMERA_LAYER, type FloatingCamera } from './FloatingCamera';
 const LENS_LOCAL = new THREE.Vector3(0, 0.3125, -0.375);
 
 /**
+ * Derived from the screen it will be displayed on, never written down twice.
+ * A literal here would silently stretch the image the moment anyone retuned
+ * FLOATING_CAMERA.screen — three keeps a camera's aspect and a render target's
+ * pixel dimensions entirely independent, so a mismatch distorts rather than
+ * letterboxes.
+ */
+const SCREEN_ASPECT = FLOATING_CAMERA.screen.width / FLOATING_CAMERA.screen.height;
+
+/**
+ * A 36x24mm frame. The player's naked 62 degrees is a ~20mm lens, which is why
+ * every focal length in the range is a real crop rather than a decorative
+ * number. Defined once, used by both the constructor and the per-frame update.
+ */
+function fovForFocal(focalMm: number): number {
+  const half = PHOTOGRAPHY.lens.sensorHeightMm / 2;
+  return 2 * Math.atan(half / focalMm) * (180 / Math.PI);
+}
+
+/**
  * A second camera rendered into a small target, active only while the camera is
  * raised — so exploration pays nothing at all for this feature.
  *
@@ -1744,7 +1763,12 @@ export class Viewfinder implements System {
 
   rung = 0;
 
-  private readonly camera = new THREE.PerspectiveCamera(40, 1.5, 0.05, 900);
+  private readonly camera = new THREE.PerspectiveCamera(
+    fovForFocal(PHOTOGRAPHY.lens.startMm),
+    SCREEN_ASPECT,
+    VIEW.near,
+    VIEW.far,
+  );
   private readonly worldPosition = new THREE.Vector3();
   private readonly worldQuaternion = new THREE.Quaternion();
   private target: THREE.WebGLRenderTarget | null = null;
