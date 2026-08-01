@@ -57,11 +57,19 @@ export function targetEv(state: PhotoState): number {
 
 /**
  * How much to scale the viewfinder image. Above 1 the settings are letting in
- * more light than the scene needs. This grades the viewfinder texture only,
- * never the player's own view.
+ * more light than the SCENE needs.
+ *
+ * Measured against `sceneEv`, deliberately not against `targetEv`. The coupling
+ * aims settingsEv AT targetEv, and targetEv is sceneEv offset by the
+ * compensation dial — so measuring against targetEv would cancel the dial out
+ * and leave exposure compensation doing nothing at all in P, A and S. Against
+ * sceneEv the gain settles at exactly 2^compensation, which is what the dial
+ * is for. In M nothing couples, so this reads as the raw deviation.
+ *
+ * This grades the viewfinder texture only, never the player's own view.
  */
 export function viewfinderGain(state: PhotoState): number {
-  return clamp(2 ** (targetEv(state) - settingsEv(state)), 1 / GAIN_LIMIT, GAIN_LIMIT);
+  return clamp(2 ** (PHOTOGRAPHY.sceneEv - settingsEv(state)), 1 / GAIN_LIMIT, GAIN_LIMIT);
 }
 
 /**
