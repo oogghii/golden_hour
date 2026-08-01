@@ -26,7 +26,7 @@ import {
  */
 export class PhotographyMode implements System, CameraActions {
   readonly pose = new CameraPose();
-  readonly state: PhotoState = createPhotoState(PHOTOGRAPHY.lens.minMm * 1.5);
+  readonly state: PhotoState = createPhotoState(PHOTOGRAPHY.lens.startMm);
 
   /** Set by CameraInteraction in phase B. Null means nothing is hovered. */
   onCapture: (() => void) | null = null;

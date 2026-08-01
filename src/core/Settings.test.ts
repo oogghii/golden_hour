@@ -31,6 +31,11 @@ describe('PHOTOGRAPHY', () => {
       PHOTOGRAPHY.reticle.settlePxPerSec * 4,
     );
   });
+
+  it('starts the lens inside its own zoom range', () => {
+    expect(PHOTOGRAPHY.lens.startMm).toBeGreaterThanOrEqual(PHOTOGRAPHY.lens.minMm);
+    expect(PHOTOGRAPHY.lens.startMm).toBeLessThanOrEqual(PHOTOGRAPHY.lens.maxMm);
+  });
 });
 
 describe('VIEWFINDER', () => {

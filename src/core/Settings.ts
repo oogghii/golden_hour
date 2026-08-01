@@ -590,7 +590,12 @@ export const PHOTOGRAPHY = {
   /** Photographers step to compose. 0 would freeze movement entirely. */
   moveScale: 0.28,
   lookScale: 0.8,
-  lens: { minMm: 24, maxMm: 120, sensorHeightMm: 24, wheelStep: 0.055, lambda: 9 },
+  /**
+   * A 36x24mm frame, so vertical fov is 2*atan(12/f). `startMm` is where the
+   * lens sits when the camera first comes up — a mild wide, tighter than the
+   * naked view, which reads as "a camera" rather than "a zoom".
+   */
+  lens: { minMm: 24, maxMm: 120, startMm: 36, sensorHeightMm: 24, wheelStep: 0.055, lambda: 9 },
   reticle: {
     /**
      * Gesture classification is latched, never blended: the same physical
