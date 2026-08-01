@@ -315,7 +315,7 @@ export const VIEWFINDER = {
 npm test
 ```
 
-Expected: PASS, 11 tests.
+Expected: PASS, 10 tests across 3 `describe` blocks.
 
 ```bash
 npx tsc --noEmit
@@ -738,11 +738,19 @@ export function targetEv(state: PhotoState): number {
 
 /**
  * How much to scale the viewfinder image. Above 1 the settings are letting in
- * more light than the scene needs. This grades the viewfinder texture only,
- * never the player's own view.
+ * more light than the SCENE needs.
+ *
+ * Measured against `sceneEv`, deliberately not against `targetEv`. The coupling
+ * aims settingsEv AT targetEv, and targetEv is sceneEv offset by the
+ * compensation dial — so measuring against targetEv would cancel the dial out
+ * and leave exposure compensation doing nothing at all in P, A and S. Against
+ * sceneEv the gain settles at exactly 2^compensation, which is what the dial
+ * is for. In M nothing couples, so this reads as the raw deviation.
+ *
+ * This grades the viewfinder texture only, never the player's own view.
  */
 export function viewfinderGain(state: PhotoState): number {
-  return clamp(2 ** (targetEv(state) - settingsEv(state)), 1 / GAIN_LIMIT, GAIN_LIMIT);
+  return clamp(2 ** (PHOTOGRAPHY.sceneEv - settingsEv(state)), 1 / GAIN_LIMIT, GAIN_LIMIT);
 }
 
 /**
@@ -940,7 +948,7 @@ describe('the raised pose', () => {
     expect(screenHeight / viewHeight).toBeCloseTo(PHOTOGRAPHY.screenHeightFraction, 2);
   });
 
-  it('reframes for a wider fov by moving the camera further away', () => {
+  it('reframes for a wider fov by bringing the camera closer', () => {
     const pose = new CameraPose();
     const narrow = createPoseBlend();
     const wide = createPoseBlend();
@@ -948,7 +956,11 @@ describe('the raised pose', () => {
     settle(pose, 3);
     pose.resolve(62, narrow);
     pose.resolve(70, wide);
-    expect(Math.abs(wide.anchor.z)).toBeGreaterThan(Math.abs(narrow.anchor.z));
+    // A wider view is TALLER at any given distance, so holding the screen at a
+    // fixed fraction of that height means bringing it nearer, not pushing it
+    // away. Mobile's 70 degree fov therefore ends up with the camera closer to
+    // the eye than desktop's 62 — which is what you want on a small screen.
+    expect(Math.abs(wide.anchor.z)).toBeLessThan(Math.abs(narrow.anchor.z));
   });
 
   it('steadies the follow rather than loosening it', () => {
