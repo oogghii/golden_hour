@@ -7,10 +7,16 @@
 export type SettingId = 'focal' | 'aperture' | 'shutterSpeed' | 'iso' | 'exposure' | 'mode';
 export type ShootingMode = 'P' | 'A' | 'S' | 'M';
 
+/** What the rear screen is showing. */
+export type ScreenMode = 'live' | 'review' | 'album';
+
 export const SHOOTING_MODES: readonly ShootingMode[] = ['P', 'A', 'S', 'M'];
 
 export interface PhotoState {
   mode: ShootingMode;
+  screenMode: ScreenMode;
+  /** 'FULL' or 'NO CARD' when storage will not take photographs. Null when it will. */
+  cardStatus: string | null;
   /** Where the zoom is heading. `focalMm` chases it. */
   targetFocalMm: number;
   focalMm: number;
@@ -33,6 +39,8 @@ export interface PhotoState {
 export function createPhotoState(focalMm: number): PhotoState {
   return {
     mode: 'A',
+    screenMode: 'live',
+    cardStatus: null,
     targetFocalMm: focalMm,
     focalMm,
     // f/2.8, 1/250, ISO 400, +0.0 — a correct exposure for PHOTOGRAPHY.sceneEv,

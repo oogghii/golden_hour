@@ -641,6 +641,38 @@ export const PHOTOGRAPHY = {
     /** Frame width as a fraction of the screen. Height follows the screen's own aspect, so the frame reads as square rather than stretched. */
     frameWidthFraction: 0.2,
   },
+  /**
+   * The photograph itself. `resolution` is 3:2, matching both the 36x24mm frame
+   * the focal lengths are computed against and the rear screen it is reviewed
+   * on, so a capture is never letterboxed or stretched.
+   */
+  capture: {
+    resolution: {
+      high: [1620, 1080],
+      medium: [1200, 800],
+      low: [900, 600],
+    },
+    /** ~400kB at 1620x1080. PNG would be ~4MB, and a 248-shot roll a quarter of a gigabyte. */
+    jpegQuality: 0.92,
+    /**
+     * Seconds. The mirror slamming up. The capture render fires the moment this
+     * reaches full, so it is the budget for hiding the most expensive frame in
+     * the sequence — do not shorten it without re-checking that.
+     */
+    blackoutInSeconds: 0.05,
+    /** How long the frame stays fully black. This is where the render happens. */
+    blackoutHoldSeconds: 0.04,
+    /** The black lifting, and the edge flash riding on top of it. */
+    flashSeconds: 0.06,
+    /** How long the photograph is held before the live feed returns. */
+    reviewSeconds: 0.95,
+    returnSeconds: 0.2,
+  },
+  /** Browsing the roll. */
+  album: {
+    /** Cross-fade between photographs. */
+    fadeSeconds: 0.18,
+  },
   screenUI: {
     primary: 0xf5efe6,
     secondary: 0xc9bfb1,
