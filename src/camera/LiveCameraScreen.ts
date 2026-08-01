@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FLOATING_CAMERA } from '../core/Settings';
+import { FLOATING_CAMERA, VIEWFINDER } from '../core/Settings';
 import type { CameraScreen } from './CameraScreen';
 
 /** The rear display, showing what the lens sees. */
@@ -32,6 +32,11 @@ export class LiveCameraScreen implements CameraScreen {
     this.material.map = texture;
     this.material.color.setScalar(texture ? 1 : 0);
     this.material.needsUpdate = true;
+  }
+
+  /** Rung 3 keeps the last frame and drops the refresh rate, like a real LCD. */
+  setFrozen(frozen: boolean): void {
+    this.material.color.setScalar(frozen ? VIEWFINDER.frozenDim : 1);
   }
 
   dispose(): void {

@@ -59,7 +59,7 @@ engine.add(player);
 const screen = new LiveCameraScreen();
 const floatingCamera = new FloatingCamera(player, look, screen, photography.pose);
 engine.add(floatingCamera);
-engine.add(new Viewfinder(floatingCamera, photography, screen));
+const viewfinder = engine.add(new Viewfinder(floatingCamera, photography, screen, engine));
 engine.add(new GrassField(heightField, player, wind));
 engine.add(new PropLayer(heightField, wind));
 engine.add(new Pollen(player, wind));
@@ -70,7 +70,7 @@ engine.add({ update: (_dt, elapsed) => wind.update(elapsed) });
 
 if (import.meta.env.DEV) {
   const { DevStats } = await import('./dev/DevStats');
-  engine.add(new DevStats(engine));
+  engine.add(new DevStats(engine, viewfinder));
 }
 
 const boot = new Boot(engine.quality.isTouch, () => {

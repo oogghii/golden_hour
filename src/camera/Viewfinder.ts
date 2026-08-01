@@ -1,8 +1,11 @@
 import * as THREE from 'three';
+import type { Engine } from '../core/Engine';
+import { forcedViewfinderRung } from '../core/Quality';
 import { FLOATING_CAMERA, PHOTOGRAPHY, VIEW, VIEWFINDER } from '../core/Settings';
 import type { EngineContext, System } from '../core/System';
 import type { PhotographyMode } from '../photography/PhotographyMode';
 import { CAMERA_LAYER, type FloatingCamera } from './FloatingCamera';
+import { ViewfinderWatchdog } from './ViewfinderWatchdog';
 
 /** Local offset from the model origin to the front of the lens. */
 const LENS_LOCAL = new THREE.Vector3(0, 0.3125, -0.375);
@@ -53,10 +56,20 @@ export class Viewfinder implements System {
   private scene: THREE.Scene | null = null;
   private accumulator = 0;
 
+  private watchdog: ViewfinderWatchdog | null = null;
+  private pinnedRung: number | null = null;
+  private lastPresented = 0;
+  private targetRate = 60;
+  private wasRaised = false;
+
   constructor(
     private readonly floating: FloatingCamera,
     private readonly photography: PhotographyMode,
-    private readonly screen: { setFeed?(texture: THREE.Texture | null): void },
+    private readonly screen: {
+      setFeed?(texture: THREE.Texture | null): void;
+      setFrozen?(frozen: boolean): void;
+    },
+    private readonly engine: Engine,
   ) {}
 
   get texture(): THREE.Texture | null {
@@ -70,8 +83,20 @@ export class Viewfinder implements System {
     // inside its own screen.
     this.camera.layers.disable(CAMERA_LAYER);
     this.setRung(VIEWFINDER.startRung[ctx.quality.tier]);
+    this.pinnedRung = forcedViewfinderRung();
+    const start = this.pinnedRung ?? VIEWFINDER.startRung[ctx.quality.tier];
+    this.setRung(start);
+    this.watchdog = new ViewfinderWatchdog(start);
+    this.targetRate = Number.isFinite(ctx.quality.frameCap) ? ctx.quality.frameCap : 60;
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
     this.screen.setFeed?.(this.texture);
   }
+
+  private readonly onVisibilityChange = (): void => {
+    // Returning from a hidden tab produces a gap that is not a performance
+    // signal.
+    this.watchdog?.reset();
+  };
 
   setRung(rung: number): void {
     const clamped = Math.min(Math.max(rung, 0), VIEWFINDER.ladder.length - 1);
@@ -79,19 +104,42 @@ export class Viewfinder implements System {
     this.rung = clamped;
 
     const { width, height } = VIEWFINDER.ladder[clamped]!;
-    if (this.target?.width === width && this.target.height === height) return;
-
-    this.target?.dispose();
-    this.target = new THREE.WebGLRenderTarget(width, height, {
-      type: THREE.HalfFloatType,
-      depthBuffer: true,
-      stencilBuffer: false,
-      colorSpace: THREE.LinearSRGBColorSpace,
-    });
-    this.screen.setFeed?.(this.target.texture);
+    if (this.target?.width !== width || this.target.height !== height) {
+      this.target?.dispose();
+      this.target = new THREE.WebGLRenderTarget(width, height, {
+        type: THREE.HalfFloatType,
+        depthBuffer: true,
+        stencilBuffer: false,
+        colorSpace: THREE.LinearSRGBColorSpace,
+      });
+      this.screen.setFeed?.(this.target.texture);
+    }
+    // Runs after any reallocation above, and unconditionally on every actual
+    // rung change: rung 2 -> 3 keeps the same 256x171 target (skipping the
+    // block above entirely), and `setFeed` resets the material's colour, so
+    // calling this first would let a same-frame reallocation undo the dim.
+    this.screen.setFrozen?.(VIEWFINDER.ladder[clamped]!.hz === 0);
   }
 
   update(dt: number): void {
+    const presented = this.engine.presentedFrames;
+    const presentedDelta = presented - this.lastPresented;
+    this.lastPresented = presented;
+
+    const raised = this.photography.pose.raise > 0.001;
+    if (raised !== this.wasRaised) {
+      this.wasRaised = raised;
+      this.watchdog?.reset();
+      // On an uncapped display, what the machine was managing just before the
+      // camera came up is the only fair thing to compare against.
+      if (raised && !Number.isFinite(this.engine.quality.frameCap)) {
+        this.targetRate = Math.max(1, presentedDelta / Math.max(dt, 1e-4));
+      }
+    }
+    if (raised && this.pinnedRung === null && this.watchdog) {
+      this.setRung(this.watchdog.update(dt, presentedDelta, this.targetRate));
+    }
+
     const model = this.floating.object;
     const renderer = this.renderer;
     const scene = this.scene;
@@ -130,6 +178,7 @@ export class Viewfinder implements System {
   }
 
   dispose(): void {
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.screen.setFeed?.(null);
     this.target?.dispose();
     this.target = null;

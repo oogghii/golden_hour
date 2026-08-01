@@ -66,6 +66,14 @@ function forcedFrameCap(): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+/** `?vf=0..3` pins a viewfinder ladder rung, for exercising the ends by hand. */
+export function forcedViewfinderRung(): number | null {
+  const raw = queryParam('vf');
+  if (raw === null) return null;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
 function detectTier(isTouch: boolean): QualityTier {
   const cores = navigator.hardwareConcurrency ?? 4;
   if (!isTouch) return cores >= 4 ? 'high' : 'medium';
