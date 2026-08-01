@@ -17,4 +17,8 @@ export interface CameraActions {
   selectSetting(id: SettingId | null): void;
   /** Steps the selected setting. `delta` is in ladder indices. */
   changeSetting(delta: number): void;
+  /** Opens or closes the album on the rear screen. */
+  toggleAlbum(): void;
+  /** Steps through the album. `delta` is in photographs. */
+  flipAlbum(delta: number): void;
 }

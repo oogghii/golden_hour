@@ -13,6 +13,8 @@ import {
   SHUTTERS,
 } from './ExposureModel';
 import type { CameraActions } from './CameraActions';
+import { AlbumState } from './capture/AlbumState';
+import type { AlbumCaption } from './capture/photoRecord';
 import {
   createPhotoState,
   SHOOTING_MODES,
@@ -29,6 +31,10 @@ import {
 export class PhotographyMode implements System, CameraActions {
   readonly pose = new CameraPose();
   readonly state: PhotoState = createPhotoState(PHOTOGRAPHY.lens.startMm);
+  /** The roll, and where the player is in it. Ids are pushed in by AlbumView. */
+  readonly album = new AlbumState();
+  /** The caption for the photograph on screen, set by AlbumView. */
+  albumCaption: AlbumCaption | null = null;
 
   /**
    * Set by PhotoCapture. Returns false when the press was refused — a capture
@@ -73,17 +79,51 @@ export class PhotographyMode implements System, CameraActions {
   exitPhotographyMode(): void {
     if (!this.pose.isRaised) return;
     this.pose.setRaised(false);
+    // Lowering never leaves the album armed: coming back up must show the
+    // viewfinder, which is what the camera is for.
+    this.album.close();
+    this.state.screenMode = 'live';
     this.state.selected = null;
     touch(this.state);
   }
 
   togglePhotographyMode(): void {
+    // The album is a mode within the mode, so backing out of it should not
+    // also put the camera down. One press, one level of undo.
+    if (this.pose.isRaised && this.album.isOpen) {
+      this.toggleAlbum();
+      return;
+    }
     if (this.pose.isRaised) this.exitPhotographyMode();
     else this.enterPhotographyMode();
   }
 
+  toggleAlbum(): void {
+    if (!this.pose.isRaised) return;
+    if (this.album.isOpen) {
+      this.album.close();
+      this.state.screenMode = 'live';
+    } else {
+      // Never over a capture in flight: the review owns the screen until it ends.
+      if (this.state.screenMode !== 'live') return;
+      this.album.open();
+      if (!this.album.isOpen) return; // Nothing shot yet.
+      this.state.screenMode = 'album';
+      this.state.selected = null;
+    }
+    touch(this.state);
+  }
+
+  flipAlbum(delta: number): void {
+    if (!this.album.isOpen || delta === 0) return;
+    if (this.album.flip(delta)) touch(this.state);
+  }
+
   shutter(phase: 'down' | 'up'): void {
     if (phase === 'down' || !this.pose.isRaised) return;
+    // Browsing is a separate mode, not an overlay on a live camera: you cannot
+    // shoot what you are already looking at.
+    if (this.album.isOpen) return;
     if (this.state.remainingShots <= 0) return;
     // Fires before the counter moves: the hook returns false when a capture is
     // already running, and a press that takes no photograph must not cost a
@@ -94,6 +134,7 @@ export class PhotographyMode implements System, CameraActions {
   }
 
   focus(uv?: { x: number; y: number }): void {
+    if (this.album.isOpen) return;
     this.state.focusUv.x = uv?.x ?? 0.5;
     this.state.focusUv.y = uv?.y ?? 0.5;
     // The distance itself arrives separately, via setFocusResult: it takes a
@@ -162,6 +203,7 @@ export class PhotographyMode implements System, CameraActions {
   }
 
   zoom(deltaLogMm: number): void {
+    if (this.album.isOpen) return;
     const { minMm, maxMm } = PHOTOGRAPHY.lens;
     const next = Math.exp(clamp(Math.log(this.state.targetFocalMm) + deltaLogMm,
       Math.log(minMm), Math.log(maxMm)));
@@ -169,12 +211,14 @@ export class PhotographyMode implements System, CameraActions {
   }
 
   selectSetting(id: SettingId | null): void {
+    if (this.album.isOpen) return;
     if (this.state.selected === id) return;
     this.state.selected = id;
     touch(this.state);
   }
 
   changeSetting(delta: number): void {
+    if (this.album.isOpen) return;
     const id = this.state.selected;
     if (id === null || delta === 0) return;
     const step = Math.trunc(delta);

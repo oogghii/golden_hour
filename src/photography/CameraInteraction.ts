@@ -173,6 +173,12 @@ export class CameraInteraction implements System {
       this.actions.changeSetting(1);
       return;
     }
+    // The zone that draws how many frames are left is the natural way in to
+    // looking at the ones already taken.
+    if (target.id === 'status') {
+      this.actions.toggleAlbum();
+      return;
+    }
     if (target.settingId !== null) this.actions.selectSetting(target.settingId);
   }
 

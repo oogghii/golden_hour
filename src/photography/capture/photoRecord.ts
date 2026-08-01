@@ -28,6 +28,17 @@ export interface PhotoRecord extends PhotoMetadata {
   blob: Blob;
 }
 
+/**
+ * The caption a print gets on the back. Lives here rather than in `ScreenUI`
+ * so the drawing layer depends on the record's shape and not the other way
+ * round.
+ */
+export interface AlbumCaption extends PhotoMetadata {
+  /** 1-based, for display. */
+  index: number;
+  count: number;
+}
+
 export function photoMetadataFrom(state: PhotoState, takenAt: number): PhotoMetadata {
   return {
     takenAt,
