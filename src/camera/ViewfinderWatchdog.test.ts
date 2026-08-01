@@ -5,15 +5,52 @@ import { ViewfinderWatchdog } from './ViewfinderWatchdog';
 const TARGET = 30;
 const DT = 1 / 60;
 
+/** A rate that fails the degrade threshold, and one that clears recovery. */
+const BAD = 20;
+const GOOD = TARGET * 1.05;
+
 /** Feeds `seconds` of steady frames achieving `rate` presented frames/sec. */
 function run(dog: ViewfinderWatchdog, seconds: number, rate: number): void {
   for (let t = 0; t < seconds; t += DT) dog.update(DT, rate * DT, TARGET);
+}
+
+/**
+ * Feeds `rate` until the rung moves, and returns where it moved to. Asserting
+ * on this rather than on a fixed number of seconds keeps the ladder tests
+ * independent of exactly how long a decision takes to accumulate — the cooldown
+ * and the bucket window both delay it, and a run that is a second short reads
+ * as "no change" rather than as the failure it is meant to catch.
+ */
+function until(dog: ViewfinderWatchdog, rate: number, limitSeconds = 40): number {
+  const start = dog.rung;
+  for (let t = 0; t < limitSeconds && dog.rung === start; t += DT) {
+    dog.update(DT, rate * DT, TARGET);
+  }
+  return dog.rung;
 }
 
 describe('warm-up', () => {
   it('refuses to degrade during the first second, however bad it looks', () => {
     const dog = new ViewfinderWatchdog(0);
     run(dog, VIEWFINDER.watchdog.warmupSeconds - 0.1, 5);
+    expect(dog.rung).toBe(0);
+  });
+
+  it('keeps the warm-up out of the buckets, not merely out of the decision', () => {
+    // Half a bucket per step, so bucket boundaries land exactly and the warm-up
+    // window is a whole number of buckets. Banking those buckets would leave
+    // [bad, bad, good, good], whose MEDIAN is below the degrade threshold —
+    // unlike a single bad bucket, which the median absorbs on its own. This is
+    // the case that separates the guard from the minimum-window guard below:
+    // delete the guard and this degrades to rung 1.
+    const { warmupSeconds, bucketSeconds } = VIEWFINDER.watchdog;
+    const dt = bucketSeconds / 2;
+    const steps = warmupSeconds / dt;
+    const dog = new ViewfinderWatchdog(0);
+
+    for (let i = 0; i < steps; i++) dog.update(dt, 5 * dt, TARGET);
+    for (let i = 0; i < steps; i++) dog.update(dt, TARGET * dt, TARGET);
+
     expect(dog.rung).toBe(0);
   });
 });
@@ -85,17 +122,34 @@ describe('cooldown', () => {
 });
 
 describe('the latch', () => {
-  it('stops trying a rung that has failed twice', () => {
+  it('never returns to a rung that has failed twice', () => {
     const dog = new ViewfinderWatchdog(0);
     run(dog, VIEWFINDER.watchdog.warmupSeconds, TARGET);
-    for (let cycle = 0; cycle < 2; cycle++) {
-      run(dog, 3, 20); // fail down
-      run(dog, 12, TARGET * 1.05); // recover up
-    }
-    run(dog, 3, 20);
-    const latched = dog.rung;
-    run(dog, 20, TARGET * 1.05);
-    expect(dog.rung).toBe(latched);
+
+    expect(until(dog, BAD)).toBe(1); // rung 0 fails once
+    expect(until(dog, GOOD)).toBe(0); // and is given another try
+    expect(until(dog, BAD)).toBe(1); // twice is a pattern: the floor is now 1
+
+    run(dog, 40, GOOD);
+    expect(dog.rung).toBe(1);
+  });
+
+  it('leaves a latched device one recovery rather than none', () => {
+    // The latch spends a lifetime recovery on top of raising the floor, which
+    // is deliberate — a machine that has cratered twice earns LESS benefit of
+    // the doubt on the rungs above it. Less, not none: with the budget set to
+    // the latch cost, one recovery plus one latch exhausted it outright and a
+    // device that degraded, recovered and degraded again could never climb
+    // back to its own floor.
+    const dog = new ViewfinderWatchdog(0);
+    run(dog, VIEWFINDER.watchdog.warmupSeconds, TARGET);
+
+    expect(until(dog, BAD)).toBe(1);
+    expect(until(dog, GOOD)).toBe(0);
+    expect(until(dog, BAD)).toBe(1); // latched: floor 1, one recovery spent
+    expect(until(dog, BAD)).toBe(2); // rung 1 fails too
+
+    expect(until(dog, GOOD)).toBe(1); // and it can still climb back to the floor
   });
 });
 

@@ -1,6 +1,6 @@
 # Status
 
-Last updated after the Phase 11 handoff pass. Read this first, then `DECISIONS.md` before
+Last updated after the Phase 11 triage pass. Read this first, then `DECISIONS.md` before
 changing anything visual.
 
 ## Current phase
@@ -20,9 +20,15 @@ real-device validation for exploration and touch is still required before callin
 mobile milestone shipped. Touch bindings now exist in `TouchInput` and route through
 the existing `CameraActions`/`CameraInteraction` path.
 
+The triage pass after the handoff cleared the deferred-minors list in `HANDOFF.md` down
+to nothing. Two of those were real defects — the focus ray started at the model origin
+rather than the lens, and `?vf=3` from cold showed an uninitialised render target — and
+one tuning constant moved: `VIEWFINDER.watchdog.maxRecoveries` is now 3, because at 2 a
+latch plus one recovery spent the whole lifetime budget. `HANDOFF.md` records each.
+
 Verified at the end of this phase:
 
-- `npm test` — clean, **76 tests passing**
+- `npm test` — clean, **91 tests passing**
 - `npm run typecheck` — clean
 - `npm run build` — clean (774 kB including three.js, GLTFLoader and the embedded
   Blockbench camera; the chunk-size
@@ -105,7 +111,8 @@ semantics, MSAA depth resolve and safe-area behaviour.
   focus-and-confirm, the forced ladder ends, and a 20-cycle raise/lower memory check
   (`143g 11t` throughout) were exercised. Pointer-lock automation could not reliably
   drive slow reticle gestures, so hover/press/activate on every zone and the shutter
-  cap's physical depression still need a human browser pass.
+  cap's physical depression still need a human browser pass. The focus path's uv
+  conventions are now covered by unit tests instead, in `CameraInteraction.test.ts`.
 
 ### 4. Photography Mode gaps — deferred by design, not oversights
 
@@ -117,9 +124,13 @@ semantics, MSAA depth resolve and safe-area behaviour.
 ## Exact next task
 
 **Real-device acceptance on iPhone 15 Safari, plus a human browser pass over the
-reticle zones.** The desktop browser checklist has been run for high/medium cadence,
-forced rungs, focus, focal wheel, and the 20-cycle memory check. Touch bindings now
-cover tap-to-enter/exit, screen-zone taps, focus, shutter, adjustable-zone drags, and
-pinch zoom through the existing semantic action layer. Hardware validation remains
-open for touch look, hold-to-walk, second-finger stroll, stable 30 fps, MSAA depth
-resolve, thermal behaviour, and floating-camera framing in the mobile FOV.
+reticle zones.** These are the only two things left in Phase 11 that are not deferred by
+design, and neither can be done without a human at a real device or a real mouse — the
+deferred-minors list that used to sit alongside them is now empty.
+
+The desktop browser checklist has been run for high/medium cadence, forced rungs, focus,
+focal wheel, and the 20-cycle memory check. Touch bindings now cover tap-to-enter/exit,
+screen-zone taps, focus, shutter, adjustable-zone drags, and pinch zoom through the
+existing semantic action layer. Hardware validation remains open for touch look,
+hold-to-walk, second-finger stroll, stable 30 fps, MSAA depth resolve, thermal behaviour,
+and floating-camera framing in the mobile FOV.

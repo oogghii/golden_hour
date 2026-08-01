@@ -14,46 +14,59 @@ export type GesturePhase = 'idle' | 'reticle' | 'look';
  * without buffering input and adding latency.
  */
 export class GestureClassifier {
-  phase: GesturePhase = 'idle';
-  locked = false;
   /** The speed the current gesture was classified on, for the DEV readout. */
   classifyPeak = 0;
 
+  /**
+   * Read-only from outside. The latch is the whole point of this class: a
+   * consumer that could assign either of these could flip a gesture's meaning
+   * halfway through, which is exactly what the design forbids.
+   */
+  private currentPhase: GesturePhase = 'idle';
+  private isLocked = false;
   private previousSpeed = 0;
   private settleTime = 0;
 
+  get phase(): GesturePhase {
+    return this.currentPhase;
+  }
+
+  get locked(): boolean {
+    return this.isLocked;
+  }
+
   reset(): void {
-    this.phase = 'idle';
-    this.locked = false;
+    this.currentPhase = 'idle';
+    this.isLocked = false;
     this.previousSpeed = 0;
     this.settleTime = 0;
   }
 
   update(dx: number, dy: number, dt: number): GesturePhase {
-    if (dt <= 0) return this.phase;
+    if (dt <= 0) return this.currentPhase;
 
     const config = PHOTOGRAPHY.reticle;
     const speed = Math.hypot(dx, dy) / dt;
     const peak = Math.max(speed, this.previousSpeed);
     this.previousSpeed = speed;
 
-    if (this.phase === 'idle') {
+    if (this.currentPhase === 'idle') {
       if (speed > config.settlePxPerSec) {
-        this.phase = speed >= config.flickPxPerSec ? 'look' : 'reticle';
+        this.currentPhase = speed >= config.flickPxPerSec ? 'look' : 'reticle';
         // A look classification is certain; a reticle one gets one more frame.
-        this.locked = this.phase === 'look';
+        this.isLocked = this.currentPhase === 'look';
         this.classifyPeak = speed;
         this.settleTime = 0;
       }
-      return this.phase;
+      return this.currentPhase;
     }
 
-    if (!this.locked) {
+    if (!this.isLocked) {
       if (peak >= config.flickPxPerSec) {
-        this.phase = 'look';
+        this.currentPhase = 'look';
         this.classifyPeak = peak;
       }
-      this.locked = true;
+      this.isLocked = true;
     }
 
     if (speed <= config.settlePxPerSec) {
@@ -63,6 +76,6 @@ export class GestureClassifier {
       this.settleTime = 0;
     }
 
-    return this.phase;
+    return this.currentPhase;
   }
 }

@@ -6,6 +6,9 @@ import {
   EXPOSURES,
   formatAperture,
   formatExposure,
+  formatFocal,
+  formatFocusDistance,
+  formatIso,
   formatShutter,
   ISOS,
   settingsEv,
@@ -70,6 +73,47 @@ describe('S mode couples aperture to shutter', () => {
   });
 });
 
+describe('P mode derives whichever setting was not just touched', () => {
+  it('drives the aperture when the shutter is what changed', () => {
+    state.mode = 'P';
+    applyModeCoupling(state, 'aperture');
+    const aperture = state.apertureIndex;
+
+    state.shutterIndex += 3; // one stop shorter
+    const shutter = state.shutterIndex;
+    applyModeCoupling(state, 'shutterSpeed');
+
+    expect(state.apertureIndex).toBeLessThan(aperture); // opens up to compensate
+    expect(state.shutterIndex).toBe(shutter); // and leaves the touched one alone
+  });
+
+  it('drives the shutter when the aperture is what changed', () => {
+    state.mode = 'P';
+    applyModeCoupling(state, 'aperture');
+    const shutter = state.shutterIndex;
+
+    state.apertureIndex -= 3; // one stop wider
+    const aperture = state.apertureIndex;
+    applyModeCoupling(state, 'aperture');
+
+    expect(state.shutterIndex).toBeGreaterThan(shutter); // shortens to compensate
+    expect(state.apertureIndex).toBe(aperture);
+  });
+
+  it('holds the exposure whichever side the player works from', () => {
+    state.mode = 'P';
+    for (let i = 3; i < SHUTTERS.length - 3; i++) {
+      state.shutterIndex = i;
+      applyModeCoupling(state, 'shutterSpeed');
+      // Only where the aperture ladder can still reach; past its ends the
+      // clamp is doing its job and the deviation is meant to show.
+      if (state.apertureIndex > 0 && state.apertureIndex < APERTURES.length - 1) {
+        expect(Math.abs(settingsEv(state) - targetEv(state))).toBeLessThanOrEqual(0.4);
+      }
+    }
+  });
+});
+
 describe('M mode couples nothing', () => {
   it('leaves the other settings exactly where they were', () => {
     state.mode = 'M';
@@ -123,5 +167,35 @@ describe('formatting a photographer would recognise', () => {
     expect(formatExposure(state)).toBe('0');
     state.exposureIndex += 3;
     expect(formatExposure(state)).toMatch(/^\+/);
+  });
+
+  it('keeps the decimal on fast apertures and drops it from f/10 up', () => {
+    state.apertureIndex = APERTURES.indexOf(1.4);
+    expect(formatAperture(state)).toBe('F1.4');
+    state.apertureIndex = APERTURES.indexOf(2);
+    expect(formatAperture(state)).toBe('F2');
+    state.apertureIndex = APERTURES.indexOf(11);
+    expect(formatAperture(state)).toBe('F11');
+  });
+
+  it('labels ISO rather than printing a bare number', () => {
+    state.isoIndex = ISOS.indexOf(400);
+    expect(formatIso(state)).toBe('ISO 400');
+  });
+
+  it('rounds the focal length to whole millimetres as the lens glides', () => {
+    state.focalMm = 36.4;
+    expect(formatFocal(state)).toBe('36');
+    state.focalMm = 36.6;
+    expect(formatFocal(state)).toBe('37');
+  });
+
+  it('reads focus distance the way a lens barrel does', () => {
+    state.focusDistance = 3.24;
+    expect(formatFocusDistance(state)).toBe('3.2 m');
+    state.focusDistance = 42.7;
+    expect(formatFocusDistance(state)).toBe('43 m');
+    state.focusDistance = Infinity;
+    expect(formatFocusDistance(state)).toBe('∞');
   });
 });

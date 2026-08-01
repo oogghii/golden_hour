@@ -1,8 +1,8 @@
 # Handoff — Photography Mode
 
-Branch `photography-mode`, 28 commits, branched from `f2f7c0c` on `master`.
-The handoff pass adds touch bindings and two small regression fixes. **76 tests pass**;
-`typecheck` and `build` are clean.
+Branch `photography-mode`, branched from `f2f7c0c` on `master`. The handoff pass added
+touch bindings and two small regression fixes; the triage pass after it cleared the
+deferred-minors list entirely. **91 tests pass**; `typecheck` and `build` are clean.
 
 Read `ARCHITECTURE.md` and `DECISIONS.md` first — this file covers only what is
 specific to picking the work up, not how the project is built.
@@ -129,6 +129,11 @@ the in-app browser held `143g 11t` across 20 raise/lower cycles. The browser emi
 generic Chromium `UnknownError` diagnostic with no application stack; no shader compile
 failure or application error accompanied it.
 
+Re-confirmed after the triage pass: `?vf=3` from a cold start holds a real dimmed frame
+with live chrome over it, at `vf r3`; the default rung still shows a live, correctly
+cropped feed; the rewritten `smoothstep` ramps compile and the corner sheen still sits
+top-left; no console or dev-server errors.
+
 **Not verified:**
 
 - **Every interaction binding by hand.** Wheel-to-zoom and focus were driven; pointer-lock
@@ -157,44 +162,10 @@ failure or application error accompanied it.
 
 ## Deferred minors, for triage
 
-None of these block anything. They were logged during review and consciously deferred.
-
-**Completed in this handoff pass:**
-
-- `formatAperture` no longer prints a trailing zero on whole-stop apertures.
-- Desktop dial drag and wheel input now require `Zone.adjustable`.
-- `ViewfinderWatchdog.reset()` has a regression test preserving the current rung.
-- Touch bindings now route through `CameraActions` and `CameraInteraction`.
-- Desktop right-click now toggles on button press, so it still works after pointer lock.
-
-**Still worth doing:**
-
-1. Add focused coverage for `castFocusRay` and `updateFocusRect`; their correctness still
-   rests on uv conventions in `screenMaterial` and `InteractionZones`.
-
-**Cosmetic or low-risk:**
-
-5. The warm-up guard in the watchdog is vacuous — deleting it does not fail its test,
-   because the minimum-window guard already subsumes it.
-6. With `maxRecoveries: 2`, one recovery plus one latch exhausts the lifetime budget, so a
-   device that degrades–recovers–degrades can never recover again.
-7. `?vf=3` pinned from a *cold* start shows an uninitialised render target rather than a
-   held frame, because rung 3 never renders and the pinned path never passes through
-   rung 2 first. Debug-only override; the watchdog-driven path is unaffected.
-8. The latch threshold `failed >= 2` is a hardcoded constant while every neighbouring
-   threshold lives in `VIEWFINDER.watchdog`.
-9. `GestureClassifier.phase` and `.locked` are mutable public fields, so a consumer could
-   assign them directly and break the latch from outside.
-10. No test covers `'P'` shooting mode in `derivedSetting`; `formatAperture`/`formatIso`/
-    `formatFocal` have no coverage either.
-11. `onKeyDown` does not `preventDefault` on Space, which could scroll the page alongside
-    firing the shutter if focus ever leaves the locked canvas.
-12. The focus ray approximates the lens as the model's world position rather than the
-    exact `LENS_LOCAL` offset — about 13 cm. Negligible against a 1.5 m march step, but it
-    could shift a 1–2 m reading by a tenth of a metre.
-13. Two `smoothstep` calls in `screenMaterial` use `edge0 > edge1`, which GLSL calls
-    undefined. Every mainstream vendor produces a well-behaved reversed ramp and the
-    result was hand-traced to stay in `[0,1]`. Portability note only.
+**The list is empty.** Every item logged during review has been cleared — see *Result of
+the triage pass* below for what each one turned into. Nothing new was deferred in its
+place. What remains open for this phase is the human browser pass and real-device
+acceptance, both listed under *Verified, and not*.
 
 ## Deliberately not built
 
@@ -239,3 +210,53 @@ Per the spec, and **not** oversights:
 5. Desktop right-click now toggles on `mousedown` because pointer lock can suppress
    `contextmenu`; the browser menu is still suppressed and the behavior has regression
    coverage.
+
+---
+
+## Result of the triage pass
+
+The deferred list is now empty. **91 tests pass**; `typecheck` and `build` are clean.
+Three of these were behaviour changes rather than tidying, and they are the ones to read
+first if something looks different:
+
+**Two were real defects, not cosmetics:**
+
+- **The focus ray started at the model origin, not the lens.** It now starts at
+  `FLOATING_CAMERA.lensLocal`, the same offset `Viewfinder` places its camera at — which
+  is the point: the ray and the image must agree about where the lens is. The offset is
+  ~13 cm, but it moved a 15.7 m reading by 0.6 m, because the error is along the ray, not
+  across it. `lensLocal` moved into `Settings` so the two cannot drift apart again.
+- **`?vf=3` from cold showed an uninitialised target.** A frozen rung reached from below
+  always has a last frame to hold; one pinned from cold never rendered at all. The
+  viewfinder now draws exactly one priming frame before freezing, and re-primes whenever
+  `setRung` reallocates. Verified in the browser: `?vf=3` cold now holds a real dimmed
+  frame with live chrome over it.
+
+**One tuning constant changed:**
+
+- **`VIEWFINDER.watchdog.maxRecoveries` is 3, was 2.** A latch spends a lifetime recovery
+  on top of raising the floor, which is deliberate — but at 2, one recovery plus one latch
+  spent the entire budget, so a device that degraded, recovered and degraded again could
+  never climb back to its own floor. The intent was less benefit of the doubt, not none.
+  `latchFailures` joined it in `Settings`, replacing a hardcoded `failed >= 2`.
+
+**The rest were structural or coverage:**
+
+- `GestureClassifier.phase` and `.locked` are getters over private state, so the latch
+  cannot be broken from outside.
+- Space now `preventDefault`s, so firing the shutter cannot also scroll the page.
+- The three reversed `smoothstep` calls in `screenMaterial` are written as
+  `1.0 - smoothstep(lo, hi, x)`. Not an approximation — smoothstep is symmetric about its
+  midpoint, so `S(1-t) == 1-S(t)` exactly. The corner sheen confirms the direction by eye.
+- The watchdog's warm-up guard was called vacuous. It is not: a spike lasting the *full*
+  warm-up window is two bad buckets, and the median of `[bad, bad, good, good]` does sit
+  below the degrade threshold. The old test only produced one bad bucket, which the median
+  absorbs on its own. The test was strengthened rather than the guard deleted — deleting
+  it now fails.
+- `castFocusRay` and `updateFocusRect` have focused coverage in
+  `CameraInteraction.test.ts`, built on a real raycast against a real plane so the uv
+  conventions are exercised end to end rather than asserted. Each assertion was checked by
+  mutation: flipping `v`, dropping the lens offset, and squaring the frame in uv all fail
+  it.
+- `'P'` shooting mode, `formatAperture`, `formatIso`, `formatFocal` and
+  `formatFocusDistance` are covered.

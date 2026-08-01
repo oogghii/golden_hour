@@ -208,6 +208,28 @@ stalled bucket — a grass tile rebuild, a GC pause, a texture upload — can dr
 past a threshold; it cannot move a median. That is the whole point: the ladder must
 react to the machine's sustained rate, not to one bad frame.
 
+### A latch costs a recovery, but never the last one
+
+Failing the same rung twice writes it off for the session, and also spends one of the
+device's lifetime recoveries: a machine that has cratered twice has shown a pattern
+rather than hit a blip, so it earns less benefit of the doubt on the rungs above it too.
+Less, though — not none. `maxRecoveries` must therefore stay strictly above what a single
+latch costs, or the two penalties collapse into one: a device that degraded, recovered
+and degraded again would be left unable to climb back even to its own floor, which is a
+harsher rule than either mechanism was meant to express. It sits at 3 against a latch
+cost of 1.
+
+### The focus ray starts at the lens, not at the model origin
+
+`Viewfinder` places its camera at `FLOATING_CAMERA.lensLocal`; `CameraInteraction` marches
+the focus ray from the same offset. This is not precision for its own sake — the offset is
+about 13 cm on a march that steps 1.5 m. It matters because the error lies **along** the
+ray rather than across it, so it does not blur the reading, it biases it: every distance
+comes back short by the full offset, which moved a 15.7 m measurement by 0.6 m in test.
+The number on the screen has to describe the image the screen is showing, and the two must
+agree about where the lens is. That is why the offset lives in `Settings` and not in
+either module.
+
 ## Still unresolved
 
 See `STATUS.md`. Real iPhone 15 Safari validation is the top open item, alongside

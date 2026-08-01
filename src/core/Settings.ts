@@ -543,6 +543,13 @@ export const FLOATING_CAMERA = {
   bank: 0.045,
   rotationDeg: { x: -5, y: -12, z: -2 },
   /**
+   * Model-space offset from the model origin to the front of the lens, before
+   * `scale`. Both the viewfinder camera and the focus ray start here, so it
+   * lives in one place: they must agree about where the lens is, or the
+   * measured distance stops describing what the image actually shows.
+   */
+  lensLocal: [0, 0.3125, -0.375] as const,
+  /**
    * The bezel aperture measured from camera.gltf: the gap inside frame nodes
    * 5-8, in front of the recessed panel of node 9, is x +/-0.30 and
    * y 0.106 -> 0.519, with the bezel face at z 0.2281. A 3:2 screen centred in
@@ -686,7 +693,18 @@ export const VIEWFINDER = {
     degradeBuckets: 4,
     recoverAbove: 1.0,
     recoverBuckets: 16,
-    maxRecoveries: 2,
+    /**
+     * How many times a rung has to fail before it is written off for the rest
+     * of the session. Two, so one bad patch is forgiven and a pattern is not.
+     */
+    latchFailures: 2,
+    /**
+     * Lifetime recoveries. A latch spends one of these on top of raising the
+     * floor, so this must stay strictly above `latchFailures - 1` or a device
+     * that degraded, recovered and degraded again would be left with no
+     * benefit of the doubt at all rather than less of it.
+     */
+    maxRecoveries: 3,
   },
 } as const;
 

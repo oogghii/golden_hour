@@ -25,6 +25,13 @@ const BUTTON_TRAVEL = 0.018;
 const SCREEN_ASPECT = FLOATING_CAMERA.screen.width / FLOATING_CAMERA.screen.height;
 
 /**
+ * The same lens offset `Viewfinder` places its camera at, read from the same
+ * settings entry. Scaled once here rather than per cast.
+ */
+const LENS_OFFSET = new THREE.Vector3(...FLOATING_CAMERA.lensLocal)
+  .multiplyScalar(FLOATING_CAMERA.scale);
+
+/**
  * Same 36x24mm-frame formula as Viewfinder's `fovForFocal`, computed
  * independently for the reason `SCREEN_ASPECT` above is.
  */
@@ -67,6 +74,7 @@ export class CameraInteraction implements System {
   private readonly focusOrigin = new THREE.Vector3();
   private readonly focusQuaternion = new THREE.Quaternion();
   private readonly focusDirection = new THREE.Vector3();
+  private readonly lensOffset = new THREE.Vector3();
   private readonly focusRect = new THREE.Vector4();
 
   private camera: THREE.PerspectiveCamera | null = null;
@@ -351,11 +359,10 @@ export class CameraInteraction implements System {
    * of a dependency shape: `Viewfinder` already depends on `PhotographyMode`
    * for its pose, so `PhotographyMode` cannot depend back on `Viewfinder`
    * without a cycle. `CameraInteraction` already holds both `floating` and
-   * `photography`, so it is the natural place to bridge the two — it
-   * approximates the lens with the model's own origin and orientation (the
-   * true lens offset is a few centimetres, negligible against a 1.5 m march
-   * step) and hands the resulting ray to `PhotographyMode.measureFocusDistance`,
-   * which owns the height field the ray is marched against.
+   * `photography`, so it is the natural place to bridge the two — it starts
+   * the ray at the same lens offset `Viewfinder` places its camera at and
+   * hands the result to `PhotographyMode.measureFocusDistance`, which owns the
+   * height field the ray is marched against.
    */
   private castFocusRay(u: number, v: number): void {
     const model = this.floating.object;
@@ -363,6 +370,10 @@ export class CameraInteraction implements System {
 
     model.getWorldPosition(this.focusOrigin);
     model.getWorldQuaternion(this.focusQuaternion);
+    // The lens, not the model origin. About 13cm — negligible against a 1.5m
+    // march step, but it is the difference between measuring the distance to
+    // what the image shows and the distance to a point behind it.
+    this.focusOrigin.add(this.lensOffset.copy(LENS_OFFSET).applyQuaternion(this.focusQuaternion));
 
     const halfHeight = Math.tan(verticalFovRadians(this.photography.state.focalMm) / 2);
     const halfWidth = halfHeight * SCREEN_ASPECT;

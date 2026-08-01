@@ -112,6 +112,12 @@ export class PhotoDesktopInput implements System {
     if (!this.photography.pose.isRaised) return;
     if (event.code === 'BracketLeft') this.photography.changeSetting(-1);
     else if (event.code === 'BracketRight') this.photography.changeSetting(1);
-    else if (event.code === 'Space') this.photography.shutter('up');
+    else if (event.code === 'Space') {
+      // Space is the page's scroll key whenever focus is not on the locked
+      // canvas. Firing the shutter and scrolling the document at the same time
+      // is never what was meant.
+      event.preventDefault();
+      this.photography.shutter('up');
+    }
   };
 }

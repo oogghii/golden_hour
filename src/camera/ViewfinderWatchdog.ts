@@ -94,10 +94,10 @@ export class ViewfinderWatchdog {
 
   private step(direction: 1 | -1): void {
     if (direction === 1) {
-      // The rung we are leaving has now failed. Twice means never again.
+      // The rung we are leaving has now failed. Enough times means never again.
       const failed = (this.failures.get(this.rung) ?? 0) + 1;
       this.failures.set(this.rung, failed);
-      if (failed >= 2) {
+      if (failed >= VIEWFINDER.watchdog.latchFailures) {
         this.floorRung = Math.max(this.floorRung, this.rung + 1);
         // A rung that has permanently failed also spends one of the device's
         // lifetime recovery chances: a machine that has cratered down twice

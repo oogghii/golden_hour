@@ -8,7 +8,7 @@ import { CAMERA_LAYER, type FloatingCamera } from './FloatingCamera';
 import { ViewfinderWatchdog } from './ViewfinderWatchdog';
 
 /** Local offset from the model origin to the front of the lens. */
-const LENS_LOCAL = new THREE.Vector3(0, 0.3125, -0.375);
+const LENS_LOCAL = new THREE.Vector3(...FLOATING_CAMERA.lensLocal);
 
 /**
  * Derived from the screen it will be displayed on, never written down twice.
@@ -55,6 +55,8 @@ export class Viewfinder implements System {
   private renderer: THREE.WebGLRenderer | null = null;
   private scene: THREE.Scene | null = null;
   private accumulator = 0;
+  /** Whether the current target has ever been rendered into. See `update`. */
+  private primed = false;
 
   private watchdog: ViewfinderWatchdog | null = null;
   private pinnedRung: number | null = null;
@@ -116,6 +118,9 @@ export class Viewfinder implements System {
         colorSpace: THREE.LinearSRGBColorSpace,
       });
       this.screen.setFeed?.(this.target.texture);
+      // A brand new target holds nothing. A frozen rung has no frame to hold
+      // until one has actually been drawn into it.
+      this.primed = false;
     }
     // Runs after any reallocation above, and unconditionally on every actual
     // rung change: rung 2 -> 3 keeps the same 256x171 target (skipping the
@@ -162,14 +167,20 @@ export class Viewfinder implements System {
     }
 
     const { hz } = VIEWFINDER.ladder[this.rung]!;
-    if (hz <= 0) return; // Frozen: the last frame stays on the display.
-
-    this.accumulator += dt;
-    const interval = 1 / hz;
-    if (this.accumulator < interval) return;
-    // Carried rather than zeroed, so the cadence averages exactly to `hz`,
-    // and clamped so a stall cannot trigger a catch-up burst.
-    this.accumulator = Math.min(this.accumulator - interval, interval);
+    if (hz > 0) {
+      this.accumulator += dt;
+      const interval = 1 / hz;
+      if (this.accumulator < interval) return;
+      // Carried rather than zeroed, so the cadence averages exactly to `hz`,
+      // and clamped so a stall cannot trigger a catch-up burst.
+      this.accumulator = Math.min(this.accumulator - interval, interval);
+    } else if (this.primed) {
+      // Frozen: the last frame stays on the display. A frozen rung reached
+      // from below always HAS a last frame; one pinned from a cold start —
+      // `?vf=3`, which never passes through rung 2 — does not, and would show
+      // an uninitialised target. So the freeze waits for one priming frame.
+      return;
+    }
 
     this.placeCamera(model);
 
@@ -185,6 +196,7 @@ export class Viewfinder implements System {
 
     this.lastCost.calls = renderer.info.render.calls - calls;
     this.lastCost.triangles = renderer.info.render.triangles - triangles;
+    this.primed = true;
   }
 
   dispose(): void {

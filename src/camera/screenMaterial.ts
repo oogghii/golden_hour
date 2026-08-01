@@ -104,15 +104,21 @@ void main() {
   color = mix(color, chrome.rgb, chrome.a);
 
   // Reticle: a thin ring that contracts when it has something to land on.
+  // Every ramp here runs inward, from a larger radius to a smaller one. GLSL
+  // leaves smoothstep undefined when edge0 > edge1, so each is written as
+  // 1.0 - smoothstep(lo, hi, d) instead. That is not an approximation:
+  // smoothstep is symmetric about its midpoint, so S(1-t) == 1-S(t) exactly.
   float radius = uReticleRadius * mix(1.0, 0.72, hover);
   float d = length((vUv - uReticle) * vec2(1.5, 1.0));
-  float ring = smoothstep(radius, radius - 0.0035, d) - smoothstep(radius - 0.004, radius - 0.0075, d);
+  float outer = 1.0 - smoothstep(radius - 0.0035, radius, d);
+  float inner = 1.0 - smoothstep(radius - 0.0075, radius - 0.004, d);
+  float ring = outer - inner;
   color = mix(color, uPrimary, ring * uReticleAlpha);
 
   // Glass: a corner sheen and a soft edge falloff.
   float vignette = 1.0 - 0.34 * pow(length(centred * vec2(1.15, 1.0)) * 1.4, 2.0);
   color *= clamp(vignette, 0.0, 1.0);
-  color += uPrimary * 0.05 * smoothstep(0.75, 0.0, vUv.x + (1.0 - vUv.y));
+  color += uPrimary * 0.05 * (1.0 - smoothstep(0.0, 0.75, vUv.x + (1.0 - vUv.y)));
 
   gl_FragColor = vec4(color * uEmissive, 1.0);
 }
