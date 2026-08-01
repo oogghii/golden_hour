@@ -164,6 +164,9 @@ export class CameraInteraction implements System {
       this.fade(dt, 0);
       this.hovered = null;
       this.screen.setHover(null, false);
+      // Lowering ends any interaction: there is no target to release onto, so a
+      // press in flight is cancelled rather than left to fire or stick.
+      this.pressedTarget = null;
       // The raised path is the only other writer of these uniforms; without
       // this the reticle and a depressed cap would freeze at whatever they
       // showed the instant the camera came down, instead of visibly settling.
