@@ -1,5 +1,7 @@
 import { FloatingCamera } from './camera/FloatingCamera';
-import { StaticCameraScreen } from './camera/StaticCameraScreen';
+import { LiveCameraScreen } from './camera/LiveCameraScreen';
+import { Viewfinder } from './camera/Viewfinder';
+import { PHOTOGRAPHY } from './core/Settings';
 import { Engine } from './core/Engine';
 import { GrassField } from './grass/GrassField';
 import { WindField } from './grass/wind';
@@ -54,7 +56,10 @@ engine.add(engine.quality.isTouch ? touchInput : desktopInput);
 engine.add(photography);
 engine.add(look);
 engine.add(player);
-engine.add(new FloatingCamera(player, look, new StaticCameraScreen(), photography.pose));
+const screen = new LiveCameraScreen();
+const floatingCamera = new FloatingCamera(player, look, screen, photography.pose);
+engine.add(floatingCamera);
+engine.add(new Viewfinder(floatingCamera, photography, screen));
 engine.add(new GrassField(heightField, player, wind));
 engine.add(new PropLayer(heightField, wind));
 engine.add(new Pollen(player, wind));
@@ -87,5 +92,12 @@ canvas.addEventListener('contextmenu', (event) => {
   event.preventDefault();
   photography.togglePhotographyMode();
 });
+
+// Temporary until PhotoDesktopInput lands.
+canvas.addEventListener('wheel', (event) => {
+  if (!photography.pose.isRaised) return;
+  event.preventDefault();
+  photography.zoom(-Math.sign(event.deltaY) * PHOTOGRAPHY.lens.wheelStep);
+}, { passive: false });
 
 await engine.start();

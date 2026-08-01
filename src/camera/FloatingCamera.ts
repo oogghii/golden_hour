@@ -14,6 +14,12 @@ import { createPoseBlend, type CameraPose, type PoseBlend } from './CameraPose';
 const HIT_VOLUME_SCALE = 2.4;
 
 /**
+ * The floating camera lives on its own layer so the viewfinder pass can exclude
+ * it. Without this the camera appears inside its own screen, recursively.
+ */
+export const CAMERA_LAYER = 1;
+
+/**
  * A telekinetic vintage camera that follows in world space. Its target is
  * camera-relative, but the lagged position and orientation make it feel held
  * rather than bolted to the viewport.
@@ -51,6 +57,8 @@ export class FloatingCamera implements System {
     this.screen.attach(this.model);
     this.root.add(this.model);
     ctx.scene.add(this.root);
+    this.root.traverse((child) => child.layers.set(CAMERA_LAYER));
+    ctx.camera.layers.enable(CAMERA_LAYER);
     this.updateTarget(0, 0.016);
     this.root.position.copy(this.targetPosition);
     this.root.quaternion.copy(this.targetQuaternion);
