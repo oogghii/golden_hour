@@ -97,7 +97,7 @@ describe('the raised pose', () => {
     expect(screenHeight / viewHeight).toBeCloseTo(PHOTOGRAPHY.screenHeightFraction, 2);
   });
 
-  it('reframes for a wider fov by moving the camera further away', () => {
+  it('reframes for a wider fov by bringing the camera closer', () => {
     const pose = new CameraPose();
     const narrow = createPoseBlend();
     const wide = createPoseBlend();
@@ -105,7 +105,11 @@ describe('the raised pose', () => {
     settle(pose, 3);
     pose.resolve(62, narrow);
     pose.resolve(70, wide);
-    expect(Math.abs(wide.anchor.z)).toBeGreaterThan(Math.abs(narrow.anchor.z));
+    // A wider view is TALLER at any given distance, so holding the screen at a
+    // fixed fraction of that height means bringing it nearer, not pushing it
+    // away. Mobile's 70 degree fov therefore ends up with the camera closer to
+    // the eye than desktop's 62 — which is what you want on a small screen.
+    expect(Math.abs(wide.anchor.z)).toBeLessThan(Math.abs(narrow.anchor.z));
   });
 
   it('steadies the follow rather than loosening it', () => {
