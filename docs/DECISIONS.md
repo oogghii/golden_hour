@@ -230,6 +230,54 @@ The number on the screen has to describe the image the screen is showing, and th
 agree about where the lens is. That is why the offset lives in `Settings` and not in
 either module.
 
+## Phase 12: Photo capture and the album
+
+### The photograph is its own render, not the viewfinder's target
+
+The viewfinder target is right there, already showing the composed frame, and reusing it
+would have cost nothing. It is also 512x341 at best and 256x171 once the watchdog
+degrades — so photographs would have quietly got worse as the machine got hotter, which
+is the sort of thing nobody notices until a whole roll is ruined. The capture is instead
+a dedicated render at 1620x1080 on `high`, taken through `Viewfinder`'s **own camera**
+rather than a reconstructed pose. `CameraInteraction` already reconstructs that pose once
+for the focus ray; a third copy would eventually disagree with the frame the player
+actually composed. Sharing the camera object makes agreement structural.
+
+### The blackout is not decoration over the cost — it is what the cost hides behind
+
+The capture render plus the develop pass is the most expensive frame in the sequence.
+`CaptureSequence` therefore splits the mirror-up into a ramp and a fully opaque hold, and
+raises a one-shot `shouldRender` on the transition between them, where the screen is black
+*by construction*. The first draft of the spec fired the render at `t=0` — on a frame where
+the live feed was still showing, which is exactly where a stutter is visible. There is a
+test asserting `blackout === 1` on the render frame, including under 0.25 s frames, because
+this is the kind of property that regresses silently into a stutter nobody can place.
+
+### Nothing on screen ever waits on storage
+
+The review shows the developed render target straight off the GPU. Encoding to JPEG and
+writing to IndexedDB happen afterwards and can fail freely: private mode, a disabled store
+and an exhausted quota all resolve to a status the display reads (`NO CARD`, `FULL`) rather
+than an exception the render loop has to survive. The player has already seen the
+photograph by the time any of that runs. A dropped photograph costs a saved file, never a
+working camera.
+
+### A photograph stores what the display read, not what the ladders held
+
+The album shows `36mm F2.8 1/250 ISO 400` from formatted strings written at the shutter,
+not from ladder indices resolved at display time. Indices would be smaller and would also
+mean that retuning an aperture ladder silently rewrote the history of every photograph
+already taken. The stored record is a record.
+
+### Album orientation is flipped at decode, not at upload
+
+`texture.flipY` is the obvious control and it does not work here: WebGL ignores
+`UNPACK_FLIP_Y_WEBGL` for `ImageBitmap` sources, so the flag is silently a no-op and the
+photograph renders upside down. Found in the browser, not in a test. The flip is done with
+`createImageBitmap`'s `imageOrientation` instead, which is honoured because it happens
+before the texture reaches GL. The stored JPEG stays top-down, because that is what makes
+it a valid image file rather than a buffer that happens to decode.
+
 ## Still unresolved
 
 See `STATUS.md`. Real iPhone 15 Safari validation is the top open item, alongside

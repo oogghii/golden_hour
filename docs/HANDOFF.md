@@ -2,7 +2,8 @@
 
 Branch `photography-mode`, branched from `f2f7c0c` on `master`. The handoff pass added
 touch bindings and two small regression fixes; the triage pass after it cleared the
-deferred-minors list entirely. **91 tests pass**; `typecheck` and `build` are clean.
+deferred-minors list entirely; Phase 12 then built photo capture and the album.
+**112 tests pass**; `typecheck` and `build` are clean.
 
 Read `ARCHITECTURE.md` and `DECISIONS.md` first — this file covers only what is
 specific to picking the work up, not how the project is built.
@@ -171,13 +172,47 @@ acceptance, both listed under *Verified, and not*.
 
 Per the spec, and **not** oversights:
 
-- **Photo capture is a stub.** `PhotographyMode.onCapture` is declared and invoked but
-  nothing subscribes. No file is written, no album exists.
 - **Touch bindings are implemented.** `TouchInput` uses the existing raycast path for
-  body/screen taps, focus, shutter, adjustable-zone drags, and pinch zoom. Real-device
-  validation remains open.
+  body/screen taps, focus, shutter, adjustable-zone drags, pinch zoom, and album swipes.
+  Real-device validation remains open.
 - Depth of field, histogram, and live `focusMode`/`metering` zones. The focus distance
   that DoF needs is already measured and displayed.
+- Deleting, exporting or downloading photographs, and any grid view of the album.
+
+**Photo capture is no longer a stub** — see below.
+
+## Phase 12: photo capture and the album
+
+`onCapture` finally has a subscriber. `docs/superpowers/specs/2026-08-02-photo-capture-design.md`
+is the design and `docs/superpowers/plans/2026-08-02-photo-capture.md` the plan.
+
+```
+photography/capture/
+  CaptureSequence   the shutter animation as pure timing. No three. TESTED
+  PhotoCapture      System. Targets, the capture render, readback, storage
+  developMaterial   gain -> ACES -> sRGB. The photograph, not the screen showing it
+  PhotoLibrary      IndexedDB. Every failure is a status, never a throw
+  photoRecord       what a photograph remembers. No three. TESTED
+  AlbumState        the cursor through the roll. No three. TESTED
+  AlbumView         System. Decodes and shows the photograph being browsed
+```
+
+**The three things most likely to bite you:**
+
+- **The capture render fires on the frame `CaptureSequence` reports fully black, not on
+  the first frame of the sequence.** It is the most expensive frame in the animation and
+  the blackout exists to hide it. `CaptureSequence.test.ts` asserts `blackout === 1` on
+  the render frame. If you retime `PHOTOGRAPHY.capture`, that test is what protects the
+  shutter from becoming a visible stutter.
+- **`texture.flipY` does nothing for `ImageBitmap`.** WebGL ignores
+  `UNPACK_FLIP_Y_WEBGL` for that source type. The album flips at decode via
+  `createImageBitmap`'s `imageOrientation`. This bug shipped upside-down photographs
+  once already and was only caught by eye.
+- **`PhotoCapture` and `AlbumView` both write `uPhoto` and `setCapture`.** They are
+  mutually exclusive by construction — the shutter no-ops while the album is open, and
+  the album refuses to open over a capture in flight — and `AlbumView` is registered
+  second so it wins the frame a transition straddles. Break either guard and the two
+  will fight over the screen.
 
 ## Things that will bite you
 

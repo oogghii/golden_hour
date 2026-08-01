@@ -1,26 +1,30 @@
 # Status
 
-Last updated after the Phase 11 triage pass. Read this first, then `DECISIONS.md` before
-changing anything visual.
+Last updated after Phase 12. Read this first, then `DECISIONS.md` before changing
+anything visual.
 
 ## Current phase
 
-**Phases 1–11 are implemented.** Phase 7 added the floating camera, Phase 8 added
+**Phases 1–12 are implemented.** Phase 7 added the floating camera, Phase 8 added
 invisible touch controls, Phase 9 merged and tuned the camera asset, Phase 10 added
 ecological mid-scale structures and traversal speed tuning, and Phase 11 turned the
 camera into a working interface — raise/lower, the live viewfinder with its adaptive
 quality ladder, the rear-screen chrome and reticle, exposure/focal controls and a real
 focus distance marched against the height field.
 
-Three things keep Phase 11 from being the finished feature, not just the working one:
-photo capture is still a stub (`shutter()` decrements the shot counter and calls an
-`onCapture` hook that nothing assigns; nothing is stored or displayed), the reticle
-and every hover/press/activate path still need a human end-to-end browser pass, and
-real-device validation for exploration and touch is still required before calling the
-mobile milestone shipped. Touch bindings now exist in `TouchInput` and route through
-the existing `CameraActions`/`CameraInteraction` path.
+Phase 12 closed the stub Phase 11 left behind. The shutter now takes a real photograph:
+a dedicated 1620×1080 render through the viewfinder's own camera, developed through
+exposure gain, ACES and sRGB, revealed under a mechanical SLR blackout, and written to
+IndexedDB. Tapping the frame counter opens an album on the rear screen that browses the
+whole roll with the readings each photograph was taken at.
 
-The triage pass after the handoff cleared the deferred-minors list in `HANDOFF.md` down
+Two things still keep this from being finished rather than working: the reticle and
+every hover/press/activate path still need a human end-to-end browser pass, and
+real-device validation for exploration and touch is still required before calling the
+mobile milestone shipped. Touch bindings exist in `TouchInput` and route through the
+existing `CameraActions`/`CameraInteraction` path.
+
+The triage pass before Phase 12 cleared the deferred-minors list in `HANDOFF.md` down
 to nothing. Two of those were real defects — the focus ray started at the model origin
 rather than the lens, and `?vf=3` from cold showed an uninitialised render target — and
 one tuning constant moved: `VIEWFINDER.watchdog.maxRecoveries` is now 3, because at 2 a
@@ -28,7 +32,7 @@ latch plus one recovery spent the whole lifetime budget. `HANDOFF.md` records ea
 
 Verified at the end of this phase:
 
-- `npm test` — clean, **91 tests passing**
+- `npm test` — clean, **112 tests passing**
 - `npm run typecheck` — clean
 - `npm run build` — clean (774 kB including three.js, GLTFLoader and the embedded
   Blockbench camera; the chunk-size
@@ -116,17 +120,28 @@ semantics, MSAA depth resolve and safe-area behaviour.
 
 ### 4. Photography Mode gaps — deferred by design, not oversights
 
-- **Photo capture is a stub.** `shutter()` decrements the shot counter and calls
-  `onCapture`, which nothing assigns. No image is stored or displayed.
 - **Depth of field, histogram, live focus/metering zones and viewfinder bloom** are
   deferred by `docs/superpowers/specs/2026-08-01-photography-mode-design.md` §13.
+- **Deleting, exporting and any grid view of the album** are deferred by
+  `docs/superpowers/specs/2026-08-02-photo-capture-design.md` §13. The roll is
+  browsed one photograph at a time, in the order it was shot.
+- **The album's storage footprint is real.** ~400 kB per photograph, and the film
+  counter starts at 248, so a full roll is roughly 100 MB of IndexedDB. A quota
+  failure reads `FULL` on the frame counter and refuses further captures rather
+  than throwing.
 
 ## Exact next task
 
 **Real-device acceptance on iPhone 15 Safari, plus a human browser pass over the
-reticle zones.** These are the only two things left in Phase 11 that are not deferred by
-design, and neither can be done without a human at a real device or a real mouse — the
-deferred-minors list that used to sit alongside them is now empty.
+reticle zones.** Unchanged by Phase 12, and now the only work left that is not deferred
+by design. Neither can be done without a human at a real device or a real mouse.
+
+The reticle pass matters more than it did: **opening the album is a reticle tap on the
+status zone**, and that is currently its only desktop entry point. It was verified
+through the semantic action rather than through the reticle, because pointer-lock
+automation cannot drive a slow reticle gesture. If a human finds that zone awkward to
+hit, a keyboard shortcut for the album is the obvious remedy and was deliberately not
+added on speculation.
 
 The desktop browser checklist has been run for high/medium cadence, forced rungs, focus,
 focal wheel, and the 20-cycle memory check. Touch bindings now cover tap-to-enter/exit,
