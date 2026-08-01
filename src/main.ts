@@ -11,6 +11,8 @@ import { createInputState } from './player/input/InputState';
 import { TouchInput } from './player/input/TouchInput';
 import { Player } from './player/Player';
 import { CameraInteraction } from './photography/CameraInteraction';
+import { PhotoCapture } from './photography/capture/PhotoCapture';
+import { PhotoLibrary } from './photography/capture/PhotoLibrary';
 import { PhotoDesktopInput } from './photography/input/PhotoDesktopInput';
 import { PhotographyMode } from './photography/PhotographyMode';
 import { PropLayer } from './props/PropLayer';
@@ -71,6 +73,12 @@ if (!engine.quality.isTouch) {
   desktopInput.route = (dx, dy) => photoInput.routePointer(dx, dy);
 }
 const viewfinder = engine.add(new Viewfinder(floatingCamera, photography, screen, engine));
+// Opened in the background: a camera whose card is still mounting is still a
+// working camera, so nothing waits on this. After the viewfinder, so a capture
+// in frame N photographs the pose the viewfinder settled on in frame N.
+const library = new PhotoLibrary();
+void library.open();
+engine.add(new PhotoCapture(viewfinder, photography, screen, library));
 engine.add(new GrassField(heightField, player, wind));
 engine.add(new PropLayer(heightField, wind));
 engine.add(new Pollen(player, wind));

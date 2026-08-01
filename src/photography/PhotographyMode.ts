@@ -30,8 +30,12 @@ export class PhotographyMode implements System, CameraActions {
   readonly pose = new CameraPose();
   readonly state: PhotoState = createPhotoState(PHOTOGRAPHY.lens.startMm);
 
-  /** Set by CameraInteraction in phase B. Null means nothing is hovered. */
-  onCapture: (() => void) | null = null;
+  /**
+   * Set by PhotoCapture. Returns false when the press was refused — a capture
+   * is already in flight — so the film counter is not spent on a press that
+   * took no photograph.
+   */
+  onCapture: (() => boolean | void) | null = null;
 
   constructor(
     private readonly input: InputState,
@@ -80,9 +84,13 @@ export class PhotographyMode implements System, CameraActions {
 
   shutter(phase: 'down' | 'up'): void {
     if (phase === 'down' || !this.pose.isRaised) return;
-    this.state.remainingShots = Math.max(0, this.state.remainingShots - 1);
+    if (this.state.remainingShots <= 0) return;
+    // Fires before the counter moves: the hook returns false when a capture is
+    // already running, and a press that takes no photograph must not cost a
+    // frame of film either.
+    if (this.onCapture && this.onCapture() === false) return;
+    this.state.remainingShots -= 1;
     touch(this.state);
-    this.onCapture?.();
   }
 
   focus(uv?: { x: number; y: number }): void {
