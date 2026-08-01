@@ -62,6 +62,11 @@ export class Viewfinder implements System {
   private targetRate = 60;
   private wasRaised = false;
 
+  /** Rolling measurement of the machine's natural rate while the camera is down. */
+  private baselineWindow = 0;
+  private baselineFrames = 0;
+  private baselineRate = 60;
+
   constructor(
     private readonly floating: FloatingCamera,
     private readonly photography: PhotographyMode,
@@ -82,14 +87,12 @@ export class Viewfinder implements System {
     // Layer 0 only: the camera model is on CAMERA_LAYER and must not appear
     // inside its own screen.
     this.camera.layers.disable(CAMERA_LAYER);
-    this.setRung(VIEWFINDER.startRung[ctx.quality.tier]);
     this.pinnedRung = forcedViewfinderRung();
     const start = this.pinnedRung ?? VIEWFINDER.startRung[ctx.quality.tier];
     this.setRung(start);
     this.watchdog = new ViewfinderWatchdog(start);
     this.targetRate = Number.isFinite(ctx.quality.frameCap) ? ctx.quality.frameCap : 60;
     document.addEventListener('visibilitychange', this.onVisibilityChange);
-    this.screen.setFeed?.(this.texture);
   }
 
   private readonly onVisibilityChange = (): void => {
@@ -133,7 +136,7 @@ export class Viewfinder implements System {
       // On an uncapped display, what the machine was managing just before the
       // camera came up is the only fair thing to compare against.
       if (raised && !Number.isFinite(this.engine.quality.frameCap)) {
-        this.targetRate = Math.max(1, presentedDelta / Math.max(dt, 1e-4));
+        this.targetRate = Math.max(1, this.baselineRate);
       }
     }
     if (raised && this.pinnedRung === null && this.watchdog) {
@@ -147,6 +150,13 @@ export class Viewfinder implements System {
     if (!model || !renderer || !scene || !target) return;
 
     if (this.photography.pose.raise <= 0.001) {
+      this.baselineWindow += dt;
+      this.baselineFrames += presentedDelta;
+      if (this.baselineWindow >= VIEWFINDER.watchdog.baselineSeconds) {
+        this.baselineRate = this.baselineFrames / this.baselineWindow;
+        this.baselineWindow = 0;
+        this.baselineFrames = 0;
+      }
       this.accumulator = 0;
       return;
     }

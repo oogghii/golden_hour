@@ -655,6 +655,13 @@ export const VIEWFINDER = {
   frozenDim: 0.55,
   watchdog: {
     bucketSeconds: 0.5,
+    /**
+     * How long to measure the machine's natural rate before the camera comes
+     * up, on displays with no frame cap. A single frame is not a baseline: two
+     * rAF callbacks landing 4ms apart would read as 250fps and condemn a
+     * healthy 60 to the bottom of the ladder within seconds.
+     */
+    baselineSeconds: 1.0,
     /** The first frames pay for allocation and shader compilation. */
     warmupSeconds: 1.0,
     cooldownSeconds: 3.0,
