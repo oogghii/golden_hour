@@ -542,12 +542,110 @@ export const FLOATING_CAMERA = {
   lookOffset: 0.028,
   bank: 0.045,
   rotationDeg: { x: -5, y: -12, z: -2 },
+  /**
+   * The bezel aperture measured from camera.gltf: the gap inside frame nodes
+   * 5-8, in front of the recessed panel of node 9, is x +/-0.30 and
+   * y 0.106 -> 0.519, with the bezel face at z 0.2281. A 3:2 screen centred in
+   * it leaves a 0.0065 margin top and bottom. The first draft was 0.42 x 0.265
+   * at y 0.24, which under-filled the aperture and sat low.
+   */
   screen: {
-    width: 0.42,
-    height: 0.265,
-    position: [0, 0.24, 0.229] as const,
+    width: 0.6,
+    height: 0.4,
+    position: [0, 0.3125, 0.229] as const,
     colorTop: 0xf3ac78,
     colorBottom: 0x6f7382,
+  },
+} as const;
+
+/**
+ * Photography Mode. The camera stops being scenery and becomes the interface.
+ * Every value that changes how the raise *feels* lives here.
+ */
+export const PHOTOGRAPHY = {
+  /** Under-damped on purpose: the overshoot is what reads as weight. */
+  raise: { omega: 11, zeta: 0.62, arcLift: 0.06, arcPull: 0.04, leadScale: 0.09 },
+  /** Nearly square to the player, but not sterile. */
+  raisedRotationDeg: { x: -1.5, y: 0, z: 0 },
+  /** A camera braced against your face is steadier, not looser. */
+  raisedFollowLambda: 9.0,
+  raisedRotationLambda: 11.0,
+  raisedDriftScale: 0.4,
+  raisedLookOffsetScale: 0.3,
+  raisedBankScale: 0.35,
+  /** The framing knob. The raised distance is solved from this, never hardcoded. */
+  screenHeightFraction: 0.36,
+  /** Photographers step to compose. 0 would freeze movement entirely. */
+  moveScale: 0.28,
+  lookScale: 0.8,
+  lens: { minMm: 24, maxMm: 120, sensorHeightMm: 24, wheelStep: 0.055, lambda: 9 },
+  reticle: {
+    /**
+     * Gesture classification is latched, never blended: the same physical
+     * gesture must not change meaning according to how fast it happens to be.
+     */
+    flickPxPerSec: 900,
+    settlePxPerSec: 60,
+    settleSeconds: 0.12,
+    /** Mouse travel across the full screen width. An edge is always close. */
+    pxPerScreenWidth: 260,
+    /**
+     * Magnetism assists the landing only. Scaled to zero above the cutoff so it
+     * can never drag the reticle off the path the player intended.
+     */
+    magnetism: 0.12,
+    magnetSpeedCutoff: 220,
+    fadeDelay: 1.1,
+    fadeLambda: 7,
+    /** A fraction of the screen width, as are all uv-space values here. */
+    radius: 0.016,
+  },
+  screenUI: {
+    primary: 0xf5efe6,
+    secondary: 0xc9bfb1,
+    accent: 0xf2b45c,
+    confirm: 0xa8d8a8,
+    /**
+     * Above the world's mid-tones so the display glows, below
+     * POST.bloom.threshold of 1.85 so it never smears.
+     */
+    emissive: 1.3,
+    gridOpacity: 0.14,
+  },
+  /**
+   * The sun in this world sits at 6.5 degrees, so the light is well past
+   * sunny-16 — this is the last of it. EV 9 at ISO 100 is what makes
+   * f/2.8, 1/250, ISO 400 read as a correct exposure, which is the triple the
+   * approved layout shows.
+   */
+  sceneEv: 9,
+} as const;
+
+/**
+ * The live viewfinder degrades itself rather than costing frames. Every
+ * decision reads the median of buckets, never a mean, so one stalled frame
+ * cannot trigger a downgrade.
+ */
+export const VIEWFINDER = {
+  ladder: [
+    { width: 512, height: 341, hz: 30 },
+    { width: 384, height: 256, hz: 20 },
+    { width: 256, height: 171, hz: 12 },
+    /** Frozen: the last frame stays, the interface stays fully live. */
+    { width: 256, height: 171, hz: 0 },
+  ],
+  startRung: { high: 0, medium: 1, low: 2 },
+  frozenDim: 0.55,
+  watchdog: {
+    bucketSeconds: 0.5,
+    /** The first frames pay for allocation and shader compilation. */
+    warmupSeconds: 1.0,
+    cooldownSeconds: 3.0,
+    degradeBelow: 0.92,
+    degradeBuckets: 4,
+    recoverAbove: 1.0,
+    recoverBuckets: 16,
+    maxRecoveries: 2,
   },
 } as const;
 
