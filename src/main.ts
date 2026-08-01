@@ -1,4 +1,3 @@
-import { CameraPose } from './camera/CameraPose';
 import { FloatingCamera } from './camera/FloatingCamera';
 import { StaticCameraScreen } from './camera/StaticCameraScreen';
 import { Engine } from './core/Engine';
@@ -10,6 +9,7 @@ import { DesktopInput } from './player/input/DesktopInput';
 import { createInputState } from './player/input/InputState';
 import { TouchInput } from './player/input/TouchInput';
 import { Player } from './player/Player';
+import { PhotographyMode } from './photography/PhotographyMode';
 import { PropLayer } from './props/PropLayer';
 import { PostFX } from './render/PostFX';
 import { Boot } from './ui/Boot';
@@ -40,20 +40,21 @@ const look = new FirstPersonCamera(input);
 const player = new Player(heightField, look, input);
 const desktopInput = new DesktopInput(input, canvas);
 const touchInput = new TouchInput(input, canvas);
-const cameraPose = new CameraPose();
+const photography = new PhotographyMode(input);
 
 engine.add(new Sky());
 engine.add(new Backdrop());
 engine.add(new Terrain(heightField));
 engine.add(new Water(heightField));
 
-// Order matters from here: input gathers, the look system consumes it, the
-// player moves along the resulting heading, and lighting reframes its shadow
-// box around wherever the player ended up.
+// Order matters from here: input gathers, photography gates it in place, the
+// look system consumes it, the player moves along the resulting heading, and
+// lighting reframes its shadow box around wherever the player ended up.
 engine.add(engine.quality.isTouch ? touchInput : desktopInput);
+engine.add(photography);
 engine.add(look);
 engine.add(player);
-engine.add(new FloatingCamera(player, look, new StaticCameraScreen(), cameraPose));
+engine.add(new FloatingCamera(player, look, new StaticCameraScreen(), photography.pose));
 engine.add(new GrassField(heightField, player, wind));
 engine.add(new PropLayer(heightField, wind));
 engine.add(new Pollen(player, wind));
@@ -74,7 +75,17 @@ const boot = new Boot(engine.quality.isTouch, () => {
 // Releasing the pointer hands control back to the overlay rather than leaving
 // the player stranded with a dead mouse.
 document.addEventListener('pointerlockchange', () => {
-  if (!desktopInput.isLocked) boot.show();
+  if (!desktopInput.isLocked) {
+    photography.exitPhotographyMode();
+    boot.show();
+  }
+});
+
+// Temporary until PhotoDesktopInput lands. Right-click is the toggle; Escape is
+// consumed by the browser as its pointer-lock release, so we mirror that here.
+canvas.addEventListener('contextmenu', (event) => {
+  event.preventDefault();
+  photography.togglePhotographyMode();
 });
 
 await engine.start();
