@@ -4,6 +4,7 @@ import {
   APERTURES,
   applyModeCoupling,
   EXPOSURES,
+  formatAperture,
   formatExposure,
   formatShutter,
   ISOS,
@@ -105,6 +106,11 @@ describe('exposure compensation', () => {
 });
 
 describe('formatting a photographer would recognise', () => {
+  it('does not print a trailing zero on whole-stop apertures', () => {
+    state.apertureIndex = APERTURES.indexOf(9);
+    expect(formatAperture(state)).toBe('F9');
+  });
+
   it('writes long shutters in seconds and short ones as fractions', () => {
     state.shutterIndex = 0;
     expect(formatShutter(state)).toMatch(/"$/);

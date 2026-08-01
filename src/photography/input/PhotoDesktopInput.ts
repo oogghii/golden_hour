@@ -66,7 +66,7 @@ export class PhotoDesktopInput implements System {
     const hovered = this.interaction.hovered;
     const overSelected =
       hovered !== null && hovered !== 'body' && hovered !== 'shutterButton' &&
-      hovered.settingId !== null && hovered.settingId === selected;
+      hovered.adjustable && hovered.settingId !== null && hovered.settingId === selected;
     if (!overSelected) return;
 
     this.dragAccumulator += dx;
@@ -78,10 +78,17 @@ export class PhotoDesktopInput implements System {
 
   private readonly onContextMenu = (event: MouseEvent): void => {
     event.preventDefault();
-    this.photography.togglePhotographyMode();
   };
 
   private readonly onMouseDown = (event: MouseEvent): void => {
+    // Pointer lock can suppress `contextmenu`, but it still delivers the
+    // button press. Toggle here so right-click remains the desktop entry
+    // point after the boot overlay has locked the canvas.
+    if (event.button === 2) {
+      event.preventDefault();
+      this.photography.togglePhotographyMode();
+      return;
+    }
     if (event.button !== 0 || !this.photography.pose.isRaised) return;
     this.dragging = true;
     this.dragAccumulator = 0;

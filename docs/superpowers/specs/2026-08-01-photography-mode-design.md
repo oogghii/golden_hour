@@ -1,6 +1,6 @@
 # Photography Mode & Physical Camera Interface — Design
 
-Status: approved by the project owner, not yet implemented.
+Status: approved by the project owner and implemented; real-device acceptance remains.
 Supersedes the `Photography` row in `docs/ARCHITECTURE.md` → *Where the next features plug in*.
 
 ## Goal
@@ -13,7 +13,8 @@ overlay, no menu — every pixel of interface lives on a mesh in the world.
 
 - Photo capture to a file, albums, galleries, progression. `shutter` is a stub.
 - Depth of field. `ExposureModel` and focus distance are built so it can land later.
-- Full mobile input. The architecture must support it; the bindings are not written.
+- Full mobile hardware acceptance. The touch bindings exist as an adapter, but the
+  iPhone 15 Safari pass remains open.
 - Histogram. A zone is reserved; nothing draws into it.
 
 ## Constraints that must survive
@@ -503,9 +504,9 @@ interface CameraActions {
 documented as such, and is never the primary path: `[` `]` for `changeSetting`, `Tab` to
 cycle selection, `Space` for `shutter`.
 
-### Touch, later
+### Touch bindings
 
-The same actions, from a `PointerRay` producer that is already the mouse's path:
+The same actions are now produced by `TouchInput` through the camera raycast path:
 
 | gesture | action |
 |---|---|

@@ -1,7 +1,8 @@
 # Handoff — Photography Mode
 
 Branch `photography-mode`, 28 commits, branched from `f2f7c0c` on `master`.
-37 files changed, +3589 / −75. **69 tests passing**, `tsc --noEmit` and `vite build` clean.
+The handoff pass adds touch bindings and two small regression fixes. **76 tests pass**;
+`typecheck` and `build` are clean.
 
 Read `ARCHITECTURE.md` and `DECISIONS.md` first — this file covers only what is
 specific to picking the work up, not how the project is built.
@@ -43,6 +44,9 @@ camera/               the physical object and its display
   ScreenUI            Canvas2D -> CanvasTexture, redrawn only on change
   screenMaterial      the composite shader
   FloatingCamera      MODIFIED: targets the blended pose; merge splits the button
+
+player/input/
+  TouchInput          exploration gestures plus touch-ray Photography Mode actions
 ```
 
 The five modules with no `three` import are the unit-tested ones. That is deliberate —
@@ -119,22 +123,21 @@ analysis puts the ceiling at ~1.36 — about 26% headroom.
 downward drift. That is the mobile target the ladder exists to protect, and it held.
 
 Also confirmed: the rest pose is visually unchanged; the raised pose is centred and
-square-on; the viewfinder shows a genuinely tighter crop than the naked view; the shader
-compiles with no console errors.
+square-on; the viewfinder shows a genuinely tighter crop than the naked view; focal
+wheel and focus confirmation work; `?vf=0` and `?vf=3` reach their intended ends; and
+the in-app browser held `143g 11t` across 20 raise/lower cycles. The browser emitted one
+generic Chromium `UnknownError` diagnostic with no application stack; no shader compile
+failure or application error accompanied it.
 
-**Not verified, and you should do this first:**
+**Not verified:**
 
-- **The settled appearance of the interface.** Chrome legibility and whether the screen's
-  brightness is right by eye. See the environment note below for why this was not
-  possible.
-- **Every interaction binding by hand.** Hover, press, cancel-by-releasing-elsewhere,
-  drag-a-dial, wheel-to-zoom, the shutter cap depressing. The code is reviewed and the
-  logic is traced, but no human has driven it.
-- `?vf=0` / `?vf=3` ladder ends.
+- **Every interaction binding by hand.** Wheel-to-zoom and focus were driven; pointer-lock
+  automation could not reliably produce a slow reticle gesture, so hover, press,
+  cancel-by-releasing-elsewhere, drag-a-dial, and shutter-cap depression still need a
+  human browser pass.
 - **Anything on real mobile hardware.** Unchanged from before this branch — still the
   project's top open item.
-- **The final whole-branch review has not been run.** Fifteen task-scoped reviews were,
-  each with its own fix loop, but the broad pass over the branch as a whole is still owed.
+- Touch bindings are implemented but remain unverified on real multi-touch hardware.
 
 ## Environment quirks that will waste your time
 
@@ -145,10 +148,10 @@ compiles with no console errors.
 - **A Vite HMR partial update can leave two `Engine` instances on one canvas** — two
   DevStats overlays, two sets of listeners, and an apparently non-functional toggle. A
   hard reload fixes it. Do not chase it as a defect.
-- **Synthetic right-click does not emit a native `contextmenu` event.** Exercising the
-  toggle from automation needs
-  `document.getElementById('view').dispatchEvent(new MouseEvent('contextmenu', {bubbles:true}))`.
-  The binding itself is correct.
+- **Pointer lock can suppress the native `contextmenu` event.** The desktop binding
+  toggles on the right-button press and uses `contextmenu` only to suppress the browser
+  menu, so automation should send a real right-button click rather than dispatching a
+  synthetic `contextmenu` event.
 
 ---
 
@@ -156,19 +159,18 @@ compiles with no console errors.
 
 None of these block anything. They were logged during review and consciously deferred.
 
-**Worth doing:**
+**Completed in this handoff pass:**
 
-1. `formatAperture` renders f/9 as `"F9.0"`; a real camera shows `"F9"`. One line, and it
-   touches the project's core "a photographer would recognise this" goal.
-2. `accumulateDrag` in `PhotoDesktopInput` and `wheel()` in `CameraInteraction` both gate
-   on `settingId === selected` but not on `Zone.adjustable`. The `mode` zone is not
-   adjustable, so a drag over it could cycle modes. Fix in one place, not two.
-3. `ViewfinderWatchdog.reset()` is untested, and it runs on every raise and every
-   visibility change. If it ever cleared `failures`/`floorRung` the latch would evaporate
-   and nothing would notice.
-4. `castFocusRay` and `updateFocusRect` have no test coverage. Their correctness rests on
-   uv conventions in `screenMaterial` and `InteractionZones` that a refactor could
-   silently break.
+- `formatAperture` no longer prints a trailing zero on whole-stop apertures.
+- Desktop dial drag and wheel input now require `Zone.adjustable`.
+- `ViewfinderWatchdog.reset()` has a regression test preserving the current rung.
+- Touch bindings now route through `CameraActions` and `CameraInteraction`.
+- Desktop right-click now toggles on button press, so it still works after pointer lock.
+
+**Still worth doing:**
+
+1. Add focused coverage for `castFocusRay` and `updateFocusRect`; their correctness still
+   rests on uv conventions in `screenMaterial` and `InteractionZones`.
 
 **Cosmetic or low-risk:**
 
@@ -200,10 +202,9 @@ Per the spec, and **not** oversights:
 
 - **Photo capture is a stub.** `PhotographyMode.onCapture` is declared and invoked but
   nothing subscribes. No file is written, no album exists.
-- **Touch bindings are not written.** The `CameraActions` interface and the whole raycast
-  path exist for them — `pointerDelta`, `press`, `release`, `wheel` are all
-  pointer-source-agnostic — but nothing in `TouchInput.ts` calls them. Pinch-to-zoom and
-  tap-to-focus map onto the existing actions with no redesign.
+- **Touch bindings are implemented.** `TouchInput` uses the existing raycast path for
+  body/screen taps, focus, shutter, adjustable-zone drags, and pinch zoom. Real-device
+  validation remains open.
 - Depth of field, histogram, and live `focusMode`/`metering` zones. The focus distance
   that DoF needs is already measured and displayed.
 
@@ -226,10 +227,15 @@ Per the spec, and **not** oversights:
 
 ---
 
-## Suggested order
+## Result of this handoff pass
 
-1. Show the browser pane and walk every binding by hand. This is the largest gap.
-2. Run the final whole-branch review.
-3. Triage the four "worth doing" minors above.
-4. Then either touch bindings or photo capture, depending on what the project wants next.
-   Both are additive; neither requires touching what is here.
+1. Browser verification covered high/medium cadence, forced rungs, focal wheel, focus,
+   and the 20-cycle memory check.
+2. The adjustable-zone, aperture-formatting, and watchdog-reset minors were triaged.
+3. Touch bindings were added without changing `Player.ts`, `FirstPersonCamera.ts`, the
+   sky, grass, lighting, post-processing, or movement constants.
+4. The remaining handoff is human reticle-zone verification and iPhone 15 Safari
+   acceptance. Photo capture remains deferred by design.
+5. Desktop right-click now toggles on `mousedown` because pointer lock can suppress
+   `contextmenu`; the browser menu is still suppressed and the behavior has regression
+   coverage.

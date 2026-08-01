@@ -174,10 +174,36 @@ export class CameraInteraction implements System {
     const selected = this.photography.state.selected;
     const overSelected =
       target !== null && target !== 'body' && target !== 'shutterButton' &&
-      target.settingId !== null && target.settingId === selected;
+      target.adjustable && target.settingId !== null && target.settingId === selected;
 
     if (overSelected) this.actions.changeSetting(notches);
     else this.actions.zoom(notches * PHOTOGRAPHY.lens.wheelStep);
+  }
+
+  /** Resolve a touch point through the same camera model used by the mouse. */
+  touchPress(ndcX: number, ndcY: number): HoverTarget {
+    const target = this.touchPoint(ndcX, ndcY);
+    if (this.photography.pose.isRaised) this.press();
+    return target;
+  }
+
+  /** Update the touch ray without changing press state. */
+  touchMove(ndcX: number, ndcY: number): HoverTarget {
+    return this.touchPoint(ndcX, ndcY);
+  }
+
+  /** Resolve the release point, then apply normal press/release semantics. */
+  touchRelease(ndcX: number, ndcY: number): HoverTarget {
+    const target = this.touchPoint(ndcX, ndcY);
+    if (this.photography.pose.isRaised) this.release();
+    return target;
+  }
+
+  /** Cancel a touch or mouse press without activating its target. */
+  cancelPress(): void {
+    this.pressedTarget = null;
+    this.lookSpill.x = 0;
+    this.lookSpill.y = 0;
   }
 
   update(dt: number): void {
@@ -276,6 +302,19 @@ export class CameraInteraction implements System {
       return;
     }
     this.hovered = 'body';
+  }
+
+  private touchPoint(ndcX: number, ndcY: number): HoverTarget {
+    if (!this.camera || !this.floating.object) {
+      this.hovered = null;
+      return null;
+    }
+
+    this.reticle.set(clamp(ndcX, -1, 1), clamp(ndcY, -1, 1));
+    this.idleTime = 0;
+    this.pointerSpeed = 0;
+    this.resolveHover();
+    return this.hovered;
   }
 
   /**

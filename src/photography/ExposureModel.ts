@@ -107,7 +107,7 @@ function derivedSetting(mode: PhotoState['mode'], changed: SettingId): 'shutterS
 
 export function formatAperture(state: PhotoState): string {
   const value = at(APERTURES, state.apertureIndex);
-  return `F${value < 10 ? value.toFixed(1) : value.toFixed(0)}`;
+  return `F${value < 10 ? Number(value.toFixed(1)) : value.toFixed(0)}`;
 }
 
 export function formatShutter(state: PhotoState): string {

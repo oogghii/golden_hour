@@ -42,8 +42,11 @@ const input = createInputState();
 const look = new FirstPersonCamera(input);
 const player = new Player(heightField, look, input);
 const desktopInput = new DesktopInput(input, canvas);
-const touchInput = new TouchInput(input, canvas);
 const photography = new PhotographyMode(input, heightField);
+const screen = new LiveCameraScreen(photography);
+const floatingCamera = new FloatingCamera(player, look, screen, photography.pose);
+const interaction = new CameraInteraction(floatingCamera, screen, photography);
+const touchInput = new TouchInput(input, canvas, photography, interaction);
 
 engine.add(new Sky());
 engine.add(new Backdrop());
@@ -57,14 +60,11 @@ engine.add(engine.quality.isTouch ? touchInput : desktopInput);
 engine.add(photography);
 engine.add(look);
 engine.add(player);
-const screen = new LiveCameraScreen(photography);
-const floatingCamera = new FloatingCamera(player, look, screen, photography.pose);
 engine.add(floatingCamera);
-const interaction = new CameraInteraction(floatingCamera, screen, photography);
 engine.add(interaction);
-// Touch has its own long-press/drag handling in TouchInput; wiring desktop's
-// contextmenu-based toggle there too would fire photography mode from a
-// native long-press with no pointer to operate it afterward.
+// TouchInput owns the touch-ray bindings; the desktop right-button toggle and
+// context-menu suppression stay in PhotoDesktopInput so a native long-press
+// cannot raise the camera without a pointer gesture available to operate it.
 const photoInput = new PhotoDesktopInput(canvas, photography, interaction, input);
 if (!engine.quality.isTouch) {
   engine.add(photoInput);

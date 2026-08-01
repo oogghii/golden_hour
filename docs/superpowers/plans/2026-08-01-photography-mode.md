@@ -3838,4 +3838,4 @@ Checked against the spec:
 - §10 settings → Task 1. §11 registration order → Tasks 6, 7, 14.
 - §12 verification → distributed, with the full pass in Task 15 Step 4.
 
-Deferred by the spec and therefore absent by design: depth of field, histogram, photo storage, live `focusMode`/`metering` zones, viewfinder bloom, and the touch bindings (the `CameraActions` surface and the raycast path exist for them; nothing calls them from `TouchInput`).
+Deferred by the spec and therefore absent by design: depth of field, histogram, photo storage, live `focusMode`/`metering` zones, and viewfinder bloom. Touch bindings were added after the original desktop-only milestone through the existing `CameraActions` surface and raycast path; real-device validation remains open.

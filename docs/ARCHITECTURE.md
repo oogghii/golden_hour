@@ -132,7 +132,7 @@ is **not** a frame count — use `Engine.presentedFrames`.
 | Feature | Where |
 |---|---|
 | Blockbench models | A loader system; add to `props/`. Keep flat shading and the low-poly silhouette |
-| Photography | Implemented — see `docs/superpowers/specs/2026-08-01-photography-mode-design.md` for the full design. Depth of field, the histogram, photo storage, live focus/metering zones and viewfinder bloom are deferred by that spec (§13); touch bindings are also absent — `CameraActions` and the raycast path exist for them, but nothing calls them from `TouchInput` |
+| Photography | Implemented — see `docs/superpowers/specs/2026-08-01-photography-mode-design.md` for the full design. Touch bindings now route through `CameraActions` and `CameraInteraction`; depth of field, the histogram, photo storage, live focus/metering zones and viewfinder bloom remain deferred by that spec (§13) |
 | Floating camera screen going live | Write `LiveCameraScreen` against the `CameraScreen` interface described in `DECISIONS.md`; one line changes in `main.ts` |
 | Animals | Systems with their own instanced meshes; sample `HeightField.heightAt` to sit on the ground |
 | Prop scatter | `src/world/Scatter.ts` | Extracted deterministic rejection scatter logic |

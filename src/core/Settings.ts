@@ -694,6 +694,7 @@ export const TOUCH = {
   lookSensitivity: 0.0042,
   holdDelay: 0.12,
   dragDeadzone: 1.5,
+  dragPxPerStep: 26,
 } as const;
 
 /** Unit wind direction on the ground plane. */

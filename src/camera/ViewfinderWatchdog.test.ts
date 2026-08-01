@@ -107,3 +107,17 @@ describe('the floor', () => {
     expect(dog.rung).toBe(VIEWFINDER.ladder.length - 1);
   });
 });
+
+describe('reset', () => {
+  it('clears the observation window without forgetting the current rung', () => {
+    const dog = new ViewfinderWatchdog(0);
+    run(dog, VIEWFINDER.watchdog.warmupSeconds, TARGET);
+    run(dog, 2.5, 20);
+    expect(dog.rung).toBe(1);
+
+    dog.reset();
+    expect(dog.rung).toBe(1);
+    run(dog, VIEWFINDER.watchdog.warmupSeconds + 1, TARGET);
+    expect(dog.rung).toBe(1);
+  });
+});
