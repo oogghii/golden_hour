@@ -1,23 +1,48 @@
 # Status
 
-Last updated at the end of Phase 9. Read this first, then `DECISIONS.md` before
-changing anything visual.
+Last updated after Phase 12. Read this first, then `DECISIONS.md` before changing
+anything visual.
 
 ## Current phase
 
-**Phases 1–10 are implemented.** Phase 7 added the floating camera, Phase 8 added
-invisible touch controls, Phase 9 merged and tuned the camera asset, and Phase 10
-added ecological mid-scale structures and traversal speed tuning. Real-device validation
-is still required before calling the mobile milestone shipped.
+**Phases 1–12 are implemented.** Phase 7 added the floating camera, Phase 8 added
+invisible touch controls, Phase 9 merged and tuned the camera asset, Phase 10 added
+ecological mid-scale structures and traversal speed tuning, and Phase 11 turned the
+camera into a working interface — raise/lower, the live viewfinder with its adaptive
+quality ladder, the rear-screen chrome and reticle, exposure/focal controls and a real
+focus distance marched against the height field.
+
+Phase 12 closed the stub Phase 11 left behind. The shutter now takes a real photograph:
+a dedicated 1620×1080 render through the viewfinder's own camera, developed through
+exposure gain, ACES and sRGB, revealed under a mechanical SLR blackout, and written to
+IndexedDB. Tapping the frame counter opens an album on the rear screen that browses the
+whole roll with the readings each photograph was taken at.
+
+Two things still keep this from being finished rather than working: the reticle and
+every hover/press/activate path still need a human end-to-end browser pass, and
+real-device validation for exploration and touch is still required before calling the
+mobile milestone shipped. Touch bindings exist in `TouchInput` and route through the
+existing `CameraActions`/`CameraInteraction` path.
+
+The triage pass before Phase 12 cleared the deferred-minors list in `HANDOFF.md` down
+to nothing. Two of those were real defects — the focus ray started at the model origin
+rather than the lens, and `?vf=3` from cold showed an uninitialised render target — and
+one tuning constant moved: `VIEWFINDER.watchdog.maxRecoveries` is now 3, because at 2 a
+latch plus one recovery spent the whole lifetime budget. `HANDOFF.md` records each.
 
 Verified at the end of this phase:
 
-- `npx tsc --noEmit` — clean
-- `npx vite build` — clean (730 kB including three.js, GLTFLoader and the embedded
+- `npm test` — clean, **112 tests passing**
+- `npm run typecheck` — clean
+- `npm run build` — clean (774 kB including three.js, GLTFLoader and the embedded
   Blockbench camera; the chunk-size
   warning is expected and not worth splitting)
 - No application console errors or shader-compile failures in the in-app browser
-- Desktop `high`: **~170 fps, 66 calls, 739k triangles**
+- Desktop `high`, at rest: **170 fps, 81 calls, 987k triangles**
+- Desktop `high`, raised: **170 fps, 100 calls, 1795k triangles** — the viewfinder pass
+  on top of the rest-state draw
+- `?quality=medium&fps=30`, raised: holds **30 fps**, settling the adaptive ladder at
+  **rung 1**
 - Forced `medium` at 30 fps: **30 fps, 49 calls, 438k triangles**
 - Forced `low` at 30 fps: **30 fps, 28 calls, 172k triangles**
 - `?fps=30`: **30 fps, 33.3 ms budget** against a ~170 Hz rAF source
@@ -45,8 +70,8 @@ Verified at the end of this phase:
 | Prop scatter | `src/world/Scatter.ts` | Deterministic rejection scatter for slope, water and protected clearings |
 | Props | `src/props/PropLayer.ts` | Merged trees, rocks and fence plus one instanced flower draw; shared wind |
 | Floating camera | `src/camera/FloatingCamera.ts` | Merged Blockbench model with world-space inertia and look-rate banking |
-| Camera screen | `src/camera/StaticCameraScreen.ts` | Static emissive first-milestone implementation of `CameraScreen` |
-| Touch input | `src/player/input/TouchInput.ts` | Drag to look, hold to walk, second finger for faster stroll; no visible controls |
+| Camera screen | `src/camera/LiveCameraScreen.ts` | Live viewfinder feed, screen chrome, procedural reticle/focus UI; `StaticCameraScreen` remains the fallback |
+| Touch input | `src/player/input/TouchInput.ts` | Exploration drag/look/hold-to-walk/stroll plus touch-ray Photography Mode bindings; no visible controls |
 | Boot UI | `src/ui/Boot.ts` | The only UI in the project. One line of type |
 | Dev overlay | `src/dev/DevStats.ts` | DEV-only, dynamically imported so it never ships |
 
@@ -54,9 +79,8 @@ Verified at the end of this phase:
 
 ### 1. Real mobile hardware — OPEN, highest priority
 
-The cap is now verified in the in-app browser: `?fps=30` reports **30 fps** with a
-**33.3 ms** budget against a ~170 Hz rAF source. The earlier 40/58 readings were
-caused by test/query state, not the accumulator. Touch controls and the automatic
+The cap is verified in the in-app browser: `?fps=30` reports **30 fps** with a
+**33.3 ms** budget against a ~170 Hz rAF source. The touch bindings and automatic
 medium tier still need an iPhone 15 Safari pass for cadence, thermals, pointer
 semantics, MSAA depth resolve and safe-area behaviour.
 
@@ -79,17 +103,49 @@ semantics, MSAA depth resolve and safe-area behaviour.
 
 - **Anything on real hardware.** No iPhone 15 test has happened. The in-app pane
   remains the only browser used for this milestone.
-- **Touch gestures.** Implemented, but the desktop browser does not expose a real
-  multi-touch surface for validating capture and cancellation semantics.
+- **Touch gestures.** Implemented through `TouchInput`, but the desktop browser does
+  not expose a real multi-touch surface for validating pinch, capture, and
+  cancellation semantics.
 - **MSAA + depth texture together.** `PostFX` requests `samples: 4` on `high`
   alongside a `DepthTexture`. It renders without error and motion blur appears to
   work, but depth-resolve correctness under MSAA was not specifically tested. If
   motion blur looks wrong on another machine, set `msaaSamples: 0` in
   `Quality.ts` first.
+- **Photography Mode's interface, end-to-end in a browser.** Raise/lower, focal wheel,
+  focus-and-confirm, the forced ladder ends, and a 20-cycle raise/lower memory check
+  (`143g 11t` throughout) were exercised. Pointer-lock automation could not reliably
+  drive slow reticle gestures, so hover/press/activate on every zone and the shutter
+  cap's physical depression still need a human browser pass. The focus path's uv
+  conventions are now covered by unit tests instead, in `CameraInteraction.test.ts`.
+
+### 4. Photography Mode gaps — deferred by design, not oversights
+
+- **Depth of field, histogram, live focus/metering zones and viewfinder bloom** are
+  deferred by `docs/superpowers/specs/2026-08-01-photography-mode-design.md` §13.
+- **Deleting, exporting and any grid view of the album** are deferred by
+  `docs/superpowers/specs/2026-08-02-photo-capture-design.md` §13. The roll is
+  browsed one photograph at a time, in the order it was shot.
+- **The album's storage footprint is real.** ~400 kB per photograph, and the film
+  counter starts at 248, so a full roll is roughly 100 MB of IndexedDB. A quota
+  failure reads `FULL` on the frame counter and refuses further captures rather
+  than throwing.
 
 ## Exact next task
 
-**Real-device acceptance pass on iPhone 15 Safari.** Confirm touch look, hold-to-walk,
-second-finger stroll, stable 30 fps, MSAA depth resolve, thermal behaviour and
-floating-camera framing in the mobile FOV. Tune only touch constants or quality
-settings in response to measured device behaviour.
+**Real-device acceptance on iPhone 15 Safari, plus a human browser pass over the
+reticle zones.** Unchanged by Phase 12, and now the only work left that is not deferred
+by design. Neither can be done without a human at a real device or a real mouse.
+
+The reticle pass matters more than it did: **opening the album is a reticle tap on the
+status zone**, and that is currently its only desktop entry point. It was verified
+through the semantic action rather than through the reticle, because pointer-lock
+automation cannot drive a slow reticle gesture. If a human finds that zone awkward to
+hit, a keyboard shortcut for the album is the obvious remedy and was deliberately not
+added on speculation.
+
+The desktop browser checklist has been run for high/medium cadence, forced rungs, focus,
+focal wheel, and the 20-cycle memory check. Touch bindings now cover tap-to-enter/exit,
+screen-zone taps, focus, shutter, adjustable-zone drags, and pinch zoom through the
+existing semantic action layer. Hardware validation remains open for touch look,
+hold-to-walk, second-finger stroll, stable 30 fps, MSAA depth resolve, thermal behaviour,
+and floating-camera framing in the mobile FOV.

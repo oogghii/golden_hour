@@ -150,6 +150,135 @@ only camera matrices, moving geometry never smears — the wind stays crisp. Do 
 - **Ecology is multiplicative, not deterministic.** We deliberately use three overlapping procedural noise fields instead of one biome map. This ensures flowers don't spawn in obvious circular blobs, and tall grass doesn't *always* mean green grass. The multiplicative intersection of fields (`Richness * (1 - Overgrowth) * Floral`) provides genuinely organic variance.
 - **Distant Tapestry.** The `Terrain.ts` vertex shader fakes the continuation of the grass beyond 120m by painting the same procedural floral and richness noise directly onto the ground plane.
 
+## Phase 11: Photography Mode
+
+### The model merge splits again, and the Phase 9 shadow-pass rationale no longer applies
+
+Phase 9 flattened all 15 of `camera.gltf`'s mesh nodes into one `VintageCameraBody`
+because preserving them individually doubled their draw cost in the shadow pass (see
+"Deviations from the original plan" above). Photography Mode needs the shutter cap to
+physically depress on its own, which needs its own mesh, so `mergeModel()` now produces
+two — `VintageCameraBody` and `ShutterButton` — plus an invisible `ShutterHitVolume` for
+picking. The extra cost is one draw call, not fifteen. More to the point,
+`prepareMaterials()` sets `castShadow = false` on every mesh of the camera
+unconditionally: it floats near eye level, so a shadow pass would cost as much as
+drawing it again and would produce an implausible moving shadow on the field. The
+shadow-pass cost the Phase 9 flatten was solving for does not exist for this model at
+all, so splitting the button back out is free.
+
+### The viewfinder is a real second render pass, not a crop of the main frame
+
+Four separate reasons converge on the same answer:
+
+1. The lens sits at a different pose than the player's eye — offset, lagging and
+   banking as `CameraPose` settles it. A crop of the main frame shows what the player's
+   eye is pointed at, not what the lens is; there is no crop that recovers a pose the
+   main camera never rendered.
+2. Focal length is a real optical change of fov (`2·atan(12/f)`), decoupled from the
+   player's own. A crop of a fixed-fov frame cannot zoom past what that frame already
+   captured, and widening the main camera's fov to serve the crop would leak into the
+   player's own view.
+3. Exposure compensation grades **only** the viewfinder image, never the player's —
+   possible only because it has its own render target to grade in isolation.
+4. The camera model must not appear inside its own screen. `CAMERA_LAYER` gives this
+   for free: the main camera renders layers 0+1, the viewfinder camera renders layer 0
+   only. A crop of the main frame necessarily includes the camera model and would need
+   extra masking to hide it.
+
+### Gesture classification is latched, not blended
+
+A continuous blend — routing some fraction of the mouse delta to the reticle and the
+rest to look, weighted by speed — would mean the same physical gesture changes meaning
+mid-stroke as incidental speed varies, which reads as broken tracking, not assistance.
+Classification instead happens once, from the peak speed of a gesture's first two
+samples (a two-sample window, so an accelerating flick cannot be mistaken for a slow
+drag), and holds for the gesture's whole duration. Safety comes from the reticle's
+clamp, not from reclassifying: the reticle crosses its whole domain in ~260 px of
+travel, so a gesture misclassified as `RETICLE` reaches the boundary within a frame or
+two, and the clamp's rejected component spills into look on its own. A slip
+self-corrects without the classifier ever changing its mind.
+
+### The watchdog reads medians, never a mean
+
+Wall-clock `dt` cannot reveal the viewfinder's true cost under a frame cap — it measures
+the rAF interval, not the work — so the watchdog instead reads `Engine.presentedFrames`,
+accumulated into 0.5 s buckets. Every degrade/recover decision reads the median of a
+window of those buckets (4 for degrade, 16 for recover), never the mean. A single
+stalled bucket — a grass tile rebuild, a GC pause, a texture upload — can drag a mean
+past a threshold; it cannot move a median. That is the whole point: the ladder must
+react to the machine's sustained rate, not to one bad frame.
+
+### A latch costs a recovery, but never the last one
+
+Failing the same rung twice writes it off for the session, and also spends one of the
+device's lifetime recoveries: a machine that has cratered twice has shown a pattern
+rather than hit a blip, so it earns less benefit of the doubt on the rungs above it too.
+Less, though — not none. `maxRecoveries` must therefore stay strictly above what a single
+latch costs, or the two penalties collapse into one: a device that degraded, recovered
+and degraded again would be left unable to climb back even to its own floor, which is a
+harsher rule than either mechanism was meant to express. It sits at 3 against a latch
+cost of 1.
+
+### The focus ray starts at the lens, not at the model origin
+
+`Viewfinder` places its camera at `FLOATING_CAMERA.lensLocal`; `CameraInteraction` marches
+the focus ray from the same offset. This is not precision for its own sake — the offset is
+about 13 cm on a march that steps 1.5 m. It matters because the error lies **along** the
+ray rather than across it, so it does not blur the reading, it biases it: every distance
+comes back short by the full offset, which moved a 15.7 m measurement by 0.6 m in test.
+The number on the screen has to describe the image the screen is showing, and the two must
+agree about where the lens is. That is why the offset lives in `Settings` and not in
+either module.
+
+## Phase 12: Photo capture and the album
+
+### The photograph is its own render, not the viewfinder's target
+
+The viewfinder target is right there, already showing the composed frame, and reusing it
+would have cost nothing. It is also 512x341 at best and 256x171 once the watchdog
+degrades — so photographs would have quietly got worse as the machine got hotter, which
+is the sort of thing nobody notices until a whole roll is ruined. The capture is instead
+a dedicated render at 1620x1080 on `high`, taken through `Viewfinder`'s **own camera**
+rather than a reconstructed pose. `CameraInteraction` already reconstructs that pose once
+for the focus ray; a third copy would eventually disagree with the frame the player
+actually composed. Sharing the camera object makes agreement structural.
+
+### The blackout is not decoration over the cost — it is what the cost hides behind
+
+The capture render plus the develop pass is the most expensive frame in the sequence.
+`CaptureSequence` therefore splits the mirror-up into a ramp and a fully opaque hold, and
+raises a one-shot `shouldRender` on the transition between them, where the screen is black
+*by construction*. The first draft of the spec fired the render at `t=0` — on a frame where
+the live feed was still showing, which is exactly where a stutter is visible. There is a
+test asserting `blackout === 1` on the render frame, including under 0.25 s frames, because
+this is the kind of property that regresses silently into a stutter nobody can place.
+
+### Nothing on screen ever waits on storage
+
+The review shows the developed render target straight off the GPU. Encoding to JPEG and
+writing to IndexedDB happen afterwards and can fail freely: private mode, a disabled store
+and an exhausted quota all resolve to a status the display reads (`NO CARD`, `FULL`) rather
+than an exception the render loop has to survive. The player has already seen the
+photograph by the time any of that runs. A dropped photograph costs a saved file, never a
+working camera.
+
+### A photograph stores what the display read, not what the ladders held
+
+The album shows `36mm F2.8 1/250 ISO 400` from formatted strings written at the shutter,
+not from ladder indices resolved at display time. Indices would be smaller and would also
+mean that retuning an aperture ladder silently rewrote the history of every photograph
+already taken. The stored record is a record.
+
+### Album orientation is flipped at decode, not at upload
+
+`texture.flipY` is the obvious control and it does not work here: WebGL ignores
+`UNPACK_FLIP_Y_WEBGL` for `ImageBitmap` sources, so the flag is silently a no-op and the
+photograph renders upside down. Found in the browser, not in a test. The flip is done with
+`createImageBitmap`'s `imageOrientation` instead, which is honoured because it happens
+before the texture reaches GL. The stored JPEG stays top-down, because that is what makes
+it a valid image file rather than a buffer that happens to decode.
+
 ## Still unresolved
 
-See `STATUS.md`. Real iPhone 15 Safari validation is the top open item.
+See `STATUS.md`. Real iPhone 15 Safari validation is the top open item, alongside
+Photography Mode's own browser verification pass and its touch bindings.

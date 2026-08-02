@@ -29,7 +29,10 @@ export class DevStats implements System {
   private ticks = 0;
   private rafHz = 0;
 
-  constructor(private readonly engine: Engine) {
+  constructor(
+    private readonly engine: Engine,
+    private readonly viewfinder?: { readonly lastCost: { calls: number; triangles: number }; readonly rung: number },
+  ) {
     this.el.style.cssText = STYLE;
     document.body.appendChild(this.el);
   }
@@ -57,6 +60,9 @@ export class DevStats implements System {
       `${info.render.calls} calls  ${(info.render.triangles / 1000).toFixed(0)}k tris`,
       `${tier}  x${renderScale}  ${info.memory.geometries}g ${info.memory.textures}t`,
       `budget ${(this.engine.frameBudget * 1000).toFixed(1)}ms  raf ${this.rafHz.toFixed(0)}Hz`,
+      this.viewfinder
+        ? `vf r${this.viewfinder.rung}  +${this.viewfinder.lastCost.calls} calls  +${(this.viewfinder.lastCost.triangles / 1000).toFixed(0)}k`
+        : 'vf off',
     ].join('\n');
   }
 

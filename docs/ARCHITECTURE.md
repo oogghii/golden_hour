@@ -17,6 +17,10 @@ world/             HeightField, Terrain, Sky, Water, Backdrop, Pollen, Scatter
 grass/             wind, BladeGeometry, grassTexture, GrassMaterials, GrassField
 props/             factories + one merged/instanced PropLayer
 camera/            FloatingCamera + swappable CameraScreen implementation
+photography/       PhotographyMode, CameraInteraction, and the exposure/gesture/zone
+                    models Photography Mode reads
+photography/capture/  taking a photograph and browsing the roll: the capture
+                    sequence, the develop pass, IndexedDB storage and the album
 player/            Player, FirstPersonCamera, input/
 lighting/          Lighting
 render/            PostFX + shaders/
@@ -47,9 +51,19 @@ hidden behind a growing god object.
 ```
 Sky, Backdrop, Terrain, Water     world geometry
 DesktopInput                      gathers raw input
+PhotographyMode                   gates that input in place, before look consumes it —
+                                   how movement and look scale down while raised without
+                                   touching Player.ts or FirstPersonCamera.ts
 FirstPersonCamera                 consumes look delta, writes camera orientation
 Player                            moves along that heading, writes camera position
 FloatingCamera                    follows the new view pose with world-space lag
+Viewfinder                        renders through the floating camera's pose, so it must
+                                   come after FloatingCamera has resolved this frame's lag
+PhotoCapture                      after Viewfinder, so a capture photographs the pose the
+                                   viewfinder settled on this frame rather than last one
+AlbumView                         after PhotoCapture: both write the screen's photograph
+                                   uniforms, and the later writer wins on the one frame a
+                                   transition straddles
 GrassField                        follows the player's new position
 PropLayer                         static composition; shares height + wind
 Lighting                          reframes its shadow box around the camera
@@ -125,7 +139,8 @@ is **not** a frame count — use `Engine.presentedFrames`.
 | Feature | Where |
 |---|---|
 | Blockbench models | A loader system; add to `props/`. Keep flat shading and the low-poly silhouette |
-| Photography | New system reading `FirstPersonCamera` + `Player`; the floating camera's screen is already planned as a separate named mesh with its own material |
+| Photography | Implemented — see `docs/superpowers/specs/2026-08-01-photography-mode-design.md` for the full design. Touch bindings route through `CameraActions` and `CameraInteraction` |
+| Photo capture and the album | Implemented — see `docs/superpowers/specs/2026-08-02-photo-capture-design.md`. Depth of field, the histogram, live focus/metering zones and viewfinder bloom remain deferred; so do deleting, exporting and any grid view |
 | Floating camera screen going live | Write `LiveCameraScreen` against the `CameraScreen` interface described in `DECISIONS.md`; one line changes in `main.ts` |
 | Animals | Systems with their own instanced meshes; sample `HeightField.heightAt` to sit on the ground |
 | Prop scatter | `src/world/Scatter.ts` | Extracted deterministic rejection scatter logic |
